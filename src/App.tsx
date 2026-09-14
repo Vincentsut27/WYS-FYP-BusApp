@@ -262,6 +262,26 @@ function useGpsLocation() {
   return { position, error, start };
 }
 
+function playArrivalTone() {
+  const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) return;
+  const context = new AudioContextClass();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = "sine";
+  oscillator.frequency.setValueAtTime(880, context.currentTime);
+  oscillator.frequency.setValueAtTime(660, context.currentTime + 0.12);
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.18, context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.35);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.35);
+}
+
+type JourneyNotification = { route: Route; destination: Stop };
+
 // ─── Icons (SVG paths as components) ────────────────────────────────────────
 function Icon({ path, size = 24, className = "", style }: { path: string; size?: number; className?: string; style?: React.CSSProperties }) {
   return (
@@ -303,11 +323,25 @@ function MapViewport({ points }: { points: [number, number][] }) {
   return null;
 }
 
+function UserMapFocus({ position, active }: { position?: [number, number] | null; active: boolean }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (active && position) {
+      map.setView(position, 17, { animate: true });
+    }
+  }, [active, map, position]);
+
+  return null;
+}
+
 function CampusMap({
   routeId,
   highlightStopId,
   userPos,
   vehiclePos,
+  highlightPath,
+  focusUser = false,
   showAllStops = false,
   onStopClick,
   height = 240,
@@ -316,6 +350,8 @@ function CampusMap({
   highlightStopId?: string;
   userPos?: [number, number] | null; // latitude, longitude
   vehiclePos?: [number, number] | null; // simulated bus latitude, longitude
+  highlightPath?: [number, number][];
+  focusUser?: boolean;
   showAllStops?: boolean;
   onStopClick?: (stop: Stop) => void;
   height?: number;
@@ -327,6 +363,7 @@ function CampusMap({
   const routeColor = route?.color ?? "#7C2D9C";
   const routePath = routeStops.map((stop) => [stop.lat, stop.lng] as [number, number]);
   const [roadPath, setRoadPath] = useState<[number, number][] | null>(null);
+  const [highlightRoadPath, setHighlightRoadPath] = useState<[number, number][] | null>(null);
 
   useEffect(() => {
     if (!route || routePath.length < 2) {
@@ -351,6 +388,23 @@ function CampusMap({
     return () => controller.abort();
   }, [routeId]);
 
+  useEffect(() => {
+    if (!highlightPath || highlightPath.length < 2) {
+      setHighlightRoadPath(null);
+      return;
+    }
+    const controller = new AbortController();
+    const coordinates = highlightPath.map(([lat, lng]) => `${lng},${lat}`).join(";");
+    fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Routing request failed")))
+      .then((data) => {
+        const coordinates = data.routes?.[0]?.geometry?.coordinates;
+        setHighlightRoadPath(Array.isArray(coordinates) ? coordinates.map(([lng, lat]: [number, number]) => [lat, lng]) : null);
+      })
+      .catch(() => setHighlightRoadPath(null));
+    return () => controller.abort();
+  }, [highlightPath]);
+
   const renderedPath = roadPath ?? routePath;
 
   return (
@@ -368,8 +422,12 @@ function CampusMap({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapViewport points={renderedPath.length > 1 ? renderedPath : displayStops.map((stop) => [stop.lat, stop.lng])} />
+        <UserMapFocus position={userPos} active={focusUser} />
         {route && renderedPath.length > 1 && (
           <Polyline positions={renderedPath} pathOptions={{ color: routeColor, weight: 5, opacity: 0.9 }} />
+        )}
+        {highlightPath && highlightPath.length > 1 && (
+          <Polyline positions={highlightRoadPath ?? highlightPath} pathOptions={{ color: "#F59E0B", weight: 8, opacity: 0.95 }} />
         )}
         {displayStops.map((stop) => {
           const isHighlighted = stop.id === highlightStopId;
@@ -927,7 +985,7 @@ function isRouteOperatingNow(route: Route, date = new Date()) {
   return currentMinutes >= window[0] && currentMinutes <= window[1];
 }
 
-function SearchPage() {
+function SearchPage({ onNotify }: { onNotify: (journey: JourneyNotification) => void }) {
   const [from, setFrom] = useState<SearchStop | null>(null);
   const [to, setTo] = useState<SearchStop | null>(null);
   const [selecting, setSelecting] = useState<"from" | "to" | null>(null);
@@ -1042,7 +1100,7 @@ function SearchPage() {
                 const stopsCount = trip.count;
                 const avgTime = stopsCount * 4 + 2;
                 return (
-                  <button
+                  <div
                     key={route.id}
                     onClick={() => setExpandedRouteId(expandedRouteId === route.id ? null : route.id)}
                     className="w-full bg-white rounded-2xl p-4 shadow-sm text-left"
@@ -1088,8 +1146,17 @@ function SearchPage() {
                         );
                       })}
                     </div>
-                    <div className="text-[10px] font-semibold mt-3" style={{ color: route.color }}>
-                      {expandedRouteId === route.id ? "Hide complete route" : "View complete route"}
+                    <div className="flex items-center justify-between mt-3">
+                      <span className="text-[10px] font-semibold" style={{ color: route.color }}>
+                        {expandedRouteId === route.id ? "Hide complete route" : "View complete route"}
+                      </span>
+                      <button
+                        onClick={(event) => { event.stopPropagation(); onNotify({ route, destination: STOPS[to!.searchIds[0]] }); }}
+                        className="px-2.5 py-1 rounded-full text-[10px] font-bold"
+                        style={{ color: route.color, background: `${route.color}18` }}
+                      >
+                        Notify me
+                      </button>
                     </div>
                     {expandedRouteId === route.id && (
                       <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border)" }}>
@@ -1115,7 +1182,7 @@ function SearchPage() {
                         </div>
                       </div>
                     )}
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -1177,12 +1244,18 @@ function SearchPage() {
 function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: GeolocationPosition | null; gpsError: string | null; onRequestGps: () => void }) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [destStop, setDestStop] = useState<Stop | null>(null);
+  const [startStop, setStartStop] = useState<Stop | null>(null);
+  const [startStopManuallySet, setStartStopManuallySet] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [simIdx, setSimIdx] = useState(0);
   const [nearestStop, setNearestStop] = useState<Stop | null>(null);
   const [showRoutePicker, setShowRoutePicker] = useState(false);
   const [showDestPicker, setShowDestPicker] = useState(false);
+  const [showStartPicker, setShowStartPicker] = useState(false);
   const [stopsAway, setStopsAway] = useState<number | null>(null);
+  const [arrivalAlert, setArrivalAlert] = useState(false);
+  const [tripStarted, setTripStarted] = useState(false);
+  const arrivalAlertStop = useRef<string | null>(null);
   const simRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userPos = gpsPosition;
 
@@ -1216,12 +1289,39 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
       if (d < minDist) { minDist = d; nearest = s; }
     });
     setNearestStop(nearest);
+    if (!startStopManuallySet) setStartStop(nearest);
     if (destStop) {
-      const ni = routeStops.findIndex((s) => s.id === nearest.id);
+      const ni = routeStops.findIndex((s) => s.id === (startStop?.id ?? nearest.id));
       const di = routeStops.findIndex((s) => s.id === destStop.id);
       setStopsAway(di > ni ? di - ni : null);
     }
-  }, [trackingPos, routeStops, destStop]);
+  }, [trackingPos, routeStops, destStop, startStop, startStopManuallySet]);
+
+  const highlightPath = useMemo(() => {
+    if (!startStop || !destStop) return [];
+    const startIndex = routeStops.findIndex((stop) => stop.id === startStop.id);
+    const destinationIndex = routeStops.findIndex((stop) => stop.id === destStop.id);
+    if (startIndex < 0 || destinationIndex <= startIndex) return [];
+    return routeStops.slice(startIndex, destinationIndex + 1).map((stop) => [stop.lat, stop.lng] as [number, number]);
+  }, [routeStops, startStop, destStop]);
+
+  useEffect(() => {
+    if (!userSvg || !destStop) return;
+    const distance = getDistance(userSvg[0], userSvg[1], destStop.lat, destStop.lng);
+    if (distance <= 150 && arrivalAlertStop.current !== destStop.id) {
+      arrivalAlertStop.current = destStop.id;
+      setArrivalAlert(true);
+      playArrivalTone();
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("You are nearly there", { body: `${destStop.name} is about ${distance}m away.` });
+      }
+    }
+  }, [userSvg, destStop]);
+
+  useEffect(() => {
+    arrivalAlertStop.current = null;
+    setArrivalAlert(false);
+  }, [destStop?.id]);
 
   useEffect(() => () => {
     if (simRef.current !== null) clearInterval(simRef.current);
@@ -1258,7 +1358,7 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
           {ROUTES.map((route) => (
             <button
               key={route.id}
-              onClick={() => { setSelectedRoute(route); setDestStop(null); setSimulating(false); setShowRoutePicker(false); }}
+              onClick={() => { setSelectedRoute(route); setStartStop(null); setStartStopManuallySet(false); setDestStop(null); setTripStarted(false); setSimulating(false); setShowRoutePicker(false); }}
               className="w-full flex items-center gap-4 px-4 py-4 border-b text-left active:bg-gray-50"
               style={{ borderColor: "var(--border)" }}
             >
@@ -1281,6 +1381,9 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
     );
   }
 
+  const startIndex = startStop ? routeStops.findIndex((stop) => stop.id === startStop.id) : -1;
+  const destinationOptions = startIndex >= 0 ? routeStops.slice(startIndex + 1) : [];
+
   if (showDestPicker && selectedRoute) {
     return (
       <div className="flex flex-col h-full bg-white">
@@ -1298,7 +1401,7 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
           >
             No destination (just track position)
           </button>
-          {routeStops.map((stop, idx) => (
+          {destinationOptions.map((stop, idx) => (
             <button
               key={stop.id}
               onClick={() => { setDestStop(stop); setShowDestPicker(false); }}
@@ -1310,6 +1413,37 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
                 {idx + 1}
               </div>
               <span className="text-sm font-medium" style={{ color: "var(--text)" }}>{stop.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (showStartPicker && selectedRoute) {
+    return (
+      <div className="flex flex-col h-full bg-white">
+        <div className="flex items-center gap-3 px-4 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+          <button onClick={() => setShowStartPicker(false)} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--bg)" }}>
+            <Icon path={ICONS.x} size={18} />
+          </button>
+          <span className="text-base font-bold" style={{ color: "var(--text)" }}>Select Starting Stop</span>
+        </div>
+        <div className="flex-1 scrollable">
+          {routeStops.map((stop, idx) => (
+            <button
+              key={`${stop.id}-${idx}`}
+              onClick={() => { setStartStop(stop); setStartStopManuallySet(true); setDestStop(null); setShowStartPicker(false); }}
+              className="w-full flex items-center gap-3 px-4 py-4 border-b text-left active:bg-gray-50"
+              style={{ borderColor: "var(--border)", background: startStop?.id === stop.id ? "var(--purple-pale)" : "white" }}
+            >
+              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0" style={{ background: startStop?.id === stop.id ? "var(--purple)" : "var(--bg)", color: startStop?.id === stop.id ? "white" : "var(--muted)" }}>{idx + 1}</div>
+              <div className="flex-1">
+                <span className="text-sm font-medium" style={{ color: "var(--text)" }}>{getCanonicalStopName(stop.name)}</span>
+                {nearestStop?.id === stop.id && (
+                  <div className="text-[10px] font-semibold mt-0.5" style={{ color: "#16A34A" }}>Closest to current location</div>
+                )}
+              </div>
             </button>
           ))}
         </div>
@@ -1335,6 +1469,18 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
       </div>
 
       <div className="flex-1 scrollable">
+        {arrivalAlert && destStop && (
+          <div className="mx-3 mt-3 p-4 rounded-2xl shadow-sm" style={{ background: "#FEF3C7", border: "1.5px solid #F59E0B" }}>
+            <div className="flex items-start gap-3">
+              <Icon path={ICONS.alert} size={20} style={{ color: "#D97706" }} />
+              <div className="flex-1">
+                <div className="text-sm font-bold" style={{ color: "#92400E" }}>You are about to arrive</div>
+                <div className="text-xs mt-1" style={{ color: "#B45309" }}>{destStop.name} is nearby.</div>
+              </div>
+              <button onClick={() => setArrivalAlert(false)} className="text-xs font-bold" style={{ color: "#92400E" }}>Dismiss</button>
+            </div>
+          </div>
+        )}
         {/* Approaching alert */}
         {approaching && destStop && (
           <div className="mx-3 mt-3 p-3.5 rounded-2xl flex items-start gap-3 fade-in"
@@ -1350,7 +1496,7 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
         {/* Map */}
         <div className="mx-3 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
           {selectedRoute ? (
-            <CampusMap routeId={selectedRoute.id} userPos={userSvg} vehiclePos={vehiclePos} highlightStopId={nearestStop?.id} height={240} />
+            <CampusMap routeId={selectedRoute.id} userPos={userSvg} vehiclePos={vehiclePos} highlightPath={highlightPath} focusUser={tripStarted} highlightStopId={nearestStop?.id} height={tripStarted ? 520 : 240} />
           ) : (
             <div className="flex flex-col items-center justify-center h-[240px]" style={{ background: "#E8EDF2" }}>
               <Icon path={ICONS.map} size={40} className="opacity-20 mb-2" />
@@ -1384,6 +1530,20 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
             <>
               <div className="h-px mx-4" style={{ background: "var(--border)" }} />
               <button
+                onClick={() => setShowStartPicker(true)}
+                className="w-full flex items-center gap-4 px-4 py-4"
+              >
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "var(--purple-pale)" }}>
+                  <Icon path={ICONS.locate} size={18} style={{ color: "var(--purple)" }} />
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>{startStop ? getCanonicalStopName(startStop.name) : "Finding your starting stop..."}</div>
+                  <div className="text-xs" style={{ color: "var(--muted)" }}>{startStopManuallySet ? "Tap to change starting stop" : "Based on your current location"}</div>
+                </div>
+                <Icon path={ICONS.chevronRight} size={18} className="opacity-30" />
+              </button>
+              <div className="h-px mx-4" style={{ background: "var(--border)" }} />
+              <button
                 onClick={() => setShowDestPicker(true)}
                 className="w-full flex items-center gap-4 px-4 py-4"
               >
@@ -1413,9 +1573,9 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
             </div>
             <div className="flex gap-3 mb-3">
               <div className="flex-1 rounded-xl p-3" style={{ background: "var(--purple-pale)" }}>
-                <div className="text-xs mb-1" style={{ color: "var(--muted)" }}>Nearest Stop</div>
+                <div className="text-xs mb-1" style={{ color: "var(--muted)" }}>Current Stop</div>
                 <div className="text-sm font-bold" style={{ color: "var(--purple)" }}>
-                  {nearestStop ? nearestStop.shortName : "—"}
+                  {startStop ? getCanonicalStopName(startStop.shortName) : "—"}
                 </div>
               </div>
               {destStop && (
@@ -1428,53 +1588,19 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
               )}
             </div>
 
-            {/* Stop progress strip */}
-            {routeStops.length > 0 && nearestStop && (
-              <div className="flex items-center gap-0.5 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-                {routeStops.map((s, i) => {
-                  const nearIdx = routeStops.findIndex((x) => x.id === nearestStop.id);
-                  const isVisited = i <= nearIdx;
-                  const isCurrent = i === nearIdx;
-                  const isDest = s.id === destStop?.id;
-                  return (
-                    <div key={s.id} className="flex items-center gap-0.5 flex-shrink-0">
-                      <div
-                        className="w-3 h-3 rounded-full border-2 flex-shrink-0 transition-all"
-                        style={{
-                          borderColor: isCurrent ? "var(--purple)" : isDest ? "#D97706" : isVisited ? "var(--purple-light)" : "#DDD",
-                          background: isCurrent ? "var(--purple)" : isDest ? "#F59E0B" : isVisited ? "var(--purple-pale)" : "white",
-                          transform: isCurrent ? "scale(1.4)" : "scale(1)",
-                        }}
-                      />
-                      {i < routeStops.length - 1 && (
-                        <div className="w-4 h-0.5 flex-shrink-0" style={{ background: isVisited ? "var(--purple-light)" : "#DDD" }} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         )}
 
         {/* Controls */}
-        <div className="mx-3 mt-3 flex gap-2">
-          <button
-            onClick={onRequestGps}
-            className="flex-1 py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 border"
-            style={{ borderColor: "var(--purple)", color: "var(--purple)", background: "white" }}
-          >
-            <Icon path={ICONS.locate} size={16} />
-            Use GPS
-          </button>
+        <div className="mx-3 mt-3">
           {selectedRoute && (
             <button
-              onClick={toggleSim}
-              className="flex-1 py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 text-white"
+              onClick={() => setTripStarted((started) => !started)}
+              className="w-full py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 text-white"
               style={{ background: simulating ? "#DC2626" : "var(--navy)" }}
             >
-              <Icon path={simulating ? ICONS.stop : ICONS.play} size={16} />
-              {simulating ? "Stop Demo" : "Demo Mode"}
+              <Icon path={tripStarted ? ICONS.stop : ICONS.play} size={16} />
+              {tripStarted ? "End Trip" : "Start Trip"}
             </button>
           )}
         </div>
@@ -1515,9 +1641,38 @@ function GpsPermissionModal({ onAllow, onCancel }: { onAllow: () => void; onCanc
 export default function App() {
   const [tab, setTab] = useState<TabId>("routes");
   const [gpsPrompt, setGpsPrompt] = useState(false);
+  const [journeyNotification, setJourneyNotification] = useState<JourneyNotification | null>(null);
+  const [journeyAlert, setJourneyAlert] = useState(false);
   const gps = useGpsLocation();
 
   const requestGps = useCallback(() => setGpsPrompt(true), []);
+
+  const notifyJourney = useCallback(async (journey: JourneyNotification) => {
+    setJourneyNotification(journey);
+    setJourneyAlert(false);
+    if ("Notification" in window && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+    if (!gps.position) requestGps();
+    else gps.start();
+  }, [gps, requestGps]);
+
+  useEffect(() => {
+    if (!gps.position || !journeyNotification) return;
+    const distance = getDistance(
+      gps.position.coords.latitude,
+      gps.position.coords.longitude,
+      journeyNotification.destination.lat,
+      journeyNotification.destination.lng,
+    );
+    if (distance <= 150 && !journeyAlert) {
+      setJourneyAlert(true);
+      playArrivalTone();
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("You are nearly there", { body: `${journeyNotification.destination.name} is about ${distance}m away.` });
+      }
+    }
+  }, [gps.position, journeyNotification, journeyAlert]);
 
   useEffect(() => {
     if (tab === "track" && !gps.position && !gps.error) {
@@ -1538,7 +1693,7 @@ export default function App() {
           <ArrivalPage gpsPosition={gps.position} onRequestGps={requestGps} />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "search" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-          <SearchPage />
+          <SearchPage onNotify={notifyJourney} />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "track" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
           <TrackPage gpsPosition={gps.position} gpsError={gps.error} onRequestGps={requestGps} />
@@ -1550,6 +1705,20 @@ export default function App() {
           onCancel={() => setGpsPrompt(false)}
           onAllow={() => { setGpsPrompt(false); gps.start(); }}
         />
+      )}
+      {journeyAlert && journeyNotification && (
+        <div className="absolute inset-0 z-[90] flex items-center justify-center p-5" style={{ background: "rgba(15,23,42,0.35)" }}>
+          <div className="w-full rounded-3xl p-5 shadow-2xl" style={{ background: "#FEF3C7", border: "1.5px solid #F59E0B" }}>
+            <div className="flex items-start gap-3">
+              <Icon path={ICONS.alert} size={22} style={{ color: "#D97706" }} />
+              <div className="flex-1">
+                <div className="text-base font-bold" style={{ color: "#92400E" }}>You are about to arrive</div>
+                <div className="text-sm mt-1" style={{ color: "#B45309" }}>{journeyNotification.destination.name} is nearby.</div>
+              </div>
+              <button onClick={() => setJourneyAlert(false)} className="text-xs font-bold" style={{ color: "#92400E" }}>Dismiss</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
