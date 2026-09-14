@@ -875,9 +875,56 @@ function getRouteTrip(route: Route, fromId: string, toId: string) {
 }
 
 function getSearchRouteTrip(route: Route, from: SearchStop, to: SearchStop) {
-  return from.searchIds.flatMap((fromId) =>
-    to.searchIds.map((toId) => getRouteTrip(route, fromId, toId)).filter(Boolean) as { stops: string[]; count: number }[]
-  ).sort((a, b) => a.count - b.count)[0] ?? null;
+  const trips: { stops: string[]; count: number }[] = [];
+  from.searchIds.forEach((fromId) => {
+    to.searchIds.forEach((toId) => {
+      const trip = getRouteTrip(route, fromId, toId);
+      if (trip) trips.push(trip);
+    });
+  });
+  return trips.sort((a, b) => a.count - b.count)[0] ?? null;
+}
+
+function toMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function getOperatingWindow(route: Route, date: Date) {
+  const day = date.getDay();
+  if (route.id === "H") return day === 0 ? [toMinutes("08:20"), toMinutes("23:20")] : null;
+  if (route.id === "N") return day >= 1 && day <= 6 ? [toMinutes("19:00"), toMinutes("23:30")] : null;
+  if (route.id === "5") {
+    if (day >= 1 && day <= 5) return [toMinutes("09:18"), toMinutes("17:26")];
+    if (day === 6) return [toMinutes("09:18"), toMinutes("13:26")];
+    return null;
+  }
+  if (route.id === "6A") {
+    if (day >= 1 && day <= 5) return [toMinutes("09:10"), toMinutes("17:10")];
+    if (day === 6) return [toMinutes("09:10"), toMinutes("13:10")];
+    return null;
+  }
+  if (route.id === "6B") return day >= 1 && day <= 5 ? [toMinutes("12:20"), toMinutes("17:20")] : null;
+  if (route.id === "7") {
+    if (day >= 1 && day <= 5) return [toMinutes("08:18"), toMinutes("17:18")];
+    if (day === 6) return [toMinutes("08:18"), toMinutes("13:18")];
+    return null;
+  }
+  if (day === 0) return null;
+  if (route.id === "1") return [toMinutes("07:40"), toMinutes("18:55")];
+  if (route.id === "2") return [toMinutes("07:45"), toMinutes("18:45")];
+  if (route.id === "2S") return [toMinutes("08:00"), toMinutes("18:30")];
+  if (route.id === "3") return [toMinutes("09:00"), toMinutes("18:40")];
+  if (route.id === "4") return [toMinutes("07:30"), toMinutes("18:50")];
+  if (route.id === "8") return [toMinutes("07:35"), toMinutes("18:35")];
+  return null;
+}
+
+function isRouteOperatingNow(route: Route, date = new Date()) {
+  const window = getOperatingWindow(route, date);
+  if (!window) return false;
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  return currentMinutes >= window[0] && currentMinutes <= window[1];
 }
 
 function SearchPage() {
@@ -887,6 +934,7 @@ function SearchPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Route[] | null>(null);
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
+  const [searchedAt, setSearchedAt] = useState<Date | null>(null);
 
   const filtered = SEARCH_STOPS.filter((s) =>
     s.name.toLowerCase().includes(query.toLowerCase())
@@ -899,6 +947,7 @@ function SearchPage() {
     setQuery("");
     setResults(null);
     setExpandedRouteId(null);
+    setSearchedAt(null);
   }
 
   function swap() {
@@ -907,15 +956,18 @@ function SearchPage() {
     setTo(tmp);
     setResults(null);
     setExpandedRouteId(null);
+    setSearchedAt(null);
   }
 
   function search() {
     if (!from || !to) return;
+    const now = new Date();
     const found = ROUTES
-      .filter((route) => getSearchRouteTrip(route, from, to))
+      .filter((route) => getSearchRouteTrip(route, from, to) && isRouteOperatingNow(route, now))
       .sort((a, b) => getSearchRouteTrip(a, from, to)!.count - getSearchRouteTrip(b, from, to)!.count);
     setResults(found);
     setExpandedRouteId(null);
+    setSearchedAt(now);
   }
 
   return (
@@ -977,11 +1029,12 @@ function SearchPage() {
         {results !== null && (
           <div className="p-4 space-y-3">
             <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-              {results.length} route{results.length !== 1 ? "s" : ""} found
+              {results.length} bus{results.length !== 1 ? "es" : ""} available now
+              {searchedAt && <span className="normal-case tracking-normal font-medium"> · checked {searchedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>}
             </div>
             {results.length === 0 ? (
               <div className="bg-white rounded-2xl p-6 text-center" style={{ color: "var(--muted)" }}>
-                No direct route connects these stops. Try different stops.
+                No bus on these routes is currently operating. Check the service hours or search again later.
               </div>
             ) : (
               results.map((route) => {
