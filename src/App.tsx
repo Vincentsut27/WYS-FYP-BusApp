@@ -213,6 +213,55 @@ function getDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
+function sameStopLocation(first: Stop, second: Stop) {
+  return Math.abs(first.lat - second.lat) < 0.00001 && Math.abs(first.lng - second.lng) < 0.00001;
+}
+
+function getPhysicalStops() {
+  return Object.values(STOPS).reduce<Stop[]>((stops, stop) => {
+    if (!stops.some((existing) => sameStopLocation(existing, stop))) {
+      stops.push({ ...stop, name: getCanonicalStopName(stop.name), shortName: getCanonicalStopName(stop.shortName) });
+    }
+    return stops;
+  }, []);
+}
+
+function getCanonicalStopName(name: string) {
+  return name
+    .replace(/\s*\((?:Upward|Downward)\)/gi, "")
+    .replace(/\s+(?:Upward|Downward)$/i, "")
+    .replace(/\s*\((?:teaching days only|non-teaching days)\)/gi, "")
+    .trim();
+}
+
+function useGpsLocation() {
+  const [position, setPosition] = useState<GeolocationPosition | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const watchRef = useRef<number | null>(null);
+
+  const start = useCallback(() => {
+    if (!navigator.geolocation) {
+      setError("This browser does not support GPS.");
+      return;
+    }
+    if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+    setError(null);
+    watchRef.current = navigator.geolocation.watchPosition(
+      (nextPosition) => { setPosition(nextPosition); setError(null); },
+      (geoError) => {
+        setError(geoError.code === 1 ? "Location access was denied." : "Unable to get your current location.");
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
+    );
+  }, []);
+
+  useEffect(() => () => {
+    if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+  }, []);
+
+  return { position, error, start };
+}
+
 // ─── Icons (SVG paths as components) ────────────────────────────────────────
 function Icon({ path, size = 24, className = "", style }: { path: string; size?: number; className?: string; style?: React.CSSProperties }) {
   return (
@@ -600,23 +649,23 @@ function RoutesPage() {
 }
 
 // ─── Arrival Tab ─────────────────────────────────────────────────────────────
-function ArrivalPage() {
+function ArrivalPage({ gpsPosition, onRequestGps }: { gpsPosition: GeolocationPosition | null; onRequestGps: () => void }) {
   const [subTab, setSubTab] = useState<"nearby" | "stops">("nearby");
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
-  const [userLat] = useState(22.4220);
-  const [userLng] = useState(114.2048);
+  const userPos: [number, number] | null = gpsPosition
+    ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
+    : null;
 
-  const [userSvg] = useState<[number, number]>([22.4220, 114.2048]);
-
-  const nearbyStops = Object.values(STOPS)
-    .map((s) => ({ ...s, dist: getDistance(userLat, userLng, s.lat, s.lng) }))
+  const physicalStops = getPhysicalStops();
+  const nearbyStops = physicalStops
+    .map((s) => ({ ...s, dist: userPos ? getDistance(userPos[0], userPos[1], s.lat, s.lng) : Infinity }))
     .sort((a, b) => a.dist - b.dist)
     .slice(0, 8);
 
-  const stopList = subTab === "nearby" ? nearbyStops : Object.values(STOPS);
+  const stopList = subTab === "nearby" ? nearbyStops : physicalStops;
 
   if (selectedStop) {
-    const stopRoutes = ROUTES.filter((r) => r.stopIds.includes(selectedStop.id));
+    const stopRoutes = ROUTES.filter((route) => route.stopIds.some((stopId) => sameStopLocation(STOPS[stopId], selectedStop)));
     return (
       <div className="flex flex-col h-full" style={{ background: "var(--bg)" }}>
         <div className="flex items-center gap-3 px-4 py-3 bg-white border-b" style={{ borderColor: "var(--border)" }}>
@@ -635,7 +684,7 @@ function ArrivalPage() {
         <div className="flex-1 scrollable">
           <div className="p-3">
             <div className="rounded-2xl overflow-hidden shadow-sm">
-              <CampusMap highlightStopId={selectedStop.id} userPos={userSvg} height={180} />
+              <CampusMap highlightStopId={selectedStop.id} userPos={userPos} height={180} />
             </div>
           </div>
           {stopRoutes.length === 0 ? (
@@ -649,7 +698,7 @@ function ArrivalPage() {
               </div>
               {stopRoutes.map((route) => {
                 const arrivals = getArrivals(selectedStop.id + route.id).slice(0, 3);
-                const stopIdx = route.stopIds.indexOf(selectedStop.id);
+                const stopIdx = route.stopIds.findIndex((stopId) => sameStopLocation(STOPS[stopId], selectedStop));
                 const nextStop = route.stopIds[stopIdx + 1] ? STOPS[route.stopIds[stopIdx + 1]] : null;
                 return (
                   <div key={route.id} className="mx-3 mb-3 bg-white rounded-2xl p-4 shadow-sm">
@@ -706,7 +755,7 @@ function ArrivalPage() {
       <div className="bg-white border-b px-4 pt-4 pb-0" style={{ borderColor: "var(--border)" }}>
         <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-extrabold" style={{ color: "var(--text)" }}>Arrival Times</h1>
-          <button className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--purple-pale)", color: "var(--purple)" }}>
+          <button onClick={onRequestGps} className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--purple-pale)", color: "var(--purple)" }}>
             <Icon path={ICONS.locate} size={18} />
           </button>
         </div>
@@ -730,9 +779,16 @@ function ArrivalPage() {
 
       {/* Map */}
       <div className="bg-white shadow-sm">
+        {!gpsPosition && subTab === "nearby" && (
+          <div className="px-4 py-3 flex items-center gap-3 border-b" style={{ borderColor: "var(--border)", background: "#FFFBEB" }}>
+            <Icon path={ICONS.locate} size={18} style={{ color: "#B45309" }} />
+            <span className="flex-1 text-xs" style={{ color: "#92400E" }}>Allow location access to find stops near you.</span>
+            <button onClick={onRequestGps} className="text-xs font-bold" style={{ color: "#B45309" }}>Enable</button>
+          </div>
+        )}
         <CampusMap
           showAllStops
-          userPos={userSvg}
+          userPos={userPos}
           height={190}
           onStopClick={(s) => setSelectedStop(s)}
           highlightStopId={undefined}
@@ -746,7 +802,7 @@ function ArrivalPage() {
             {subTab === "nearby" ? "Nearby Stops" : "All Stops"}
           </span>
         </div>
-        {stopList.map((stop, idx) => {
+        {(gpsPosition ? stopList : subTab === "nearby" ? [] : stopList).map((stop, idx) => {
           const dist = "dist" in stop ? (stop as any).dist : null;
           return (
             <button
@@ -780,25 +836,69 @@ function ArrivalPage() {
 }
 
 // ─── Search Tab ──────────────────────────────────────────────────────────────
-const ALL_STOPS_LIST = Object.values(STOPS);
+type SearchStop = Stop & { searchIds: string[] };
+
+function getSearchStopName(name: string) {
+  return name
+    .replace(/\s*\((?:Upward|Downward)\)/gi, "")
+    .replace(/\s+(?:Upward|Downward)$/i, "")
+    .replace(/\s*\((?:teaching days only|non-teaching days)\)/gi, "")
+    .trim();
+}
+
+const SEARCH_STOPS: SearchStop[] = Object.values(STOPS).reduce<SearchStop[]>((stops, stop) => {
+  const displayName = getSearchStopName(stop.name);
+  const existing = stops.find((candidate) => candidate.name === displayName);
+  if (existing) {
+    existing.searchIds.push(stop.id);
+    return stops;
+  }
+  stops.push({ ...stop, name: displayName, shortName: displayName, searchIds: [stop.id] });
+  return stops;
+}, []);
+
+function getRouteTrip(route: Route, fromId: string, toId: string) {
+  const fromIndexes = route.stopIds.map((id, index) => id === fromId ? index : -1).filter((index) => index >= 0);
+  const toIndexes = route.stopIds.map((id, index) => id === toId ? index : -1).filter((index) => index >= 0);
+  if (!fromIndexes.length || !toIndexes.length || fromId === toId) return null;
+
+  let best: { stops: string[]; count: number } | null = null;
+  fromIndexes.forEach((fromIndex) => toIndexes.forEach((toIndex) => {
+    // Routes are one-way: only stops later in the published sequence are valid destinations.
+    if (toIndex <= fromIndex) return;
+    const count = toIndex - fromIndex;
+    if (best && count >= best.count) return;
+    const stops = route.stopIds.slice(fromIndex, toIndex + 1);
+    best = { stops, count };
+  }));
+  return best;
+}
+
+function getSearchRouteTrip(route: Route, from: SearchStop, to: SearchStop) {
+  return from.searchIds.flatMap((fromId) =>
+    to.searchIds.map((toId) => getRouteTrip(route, fromId, toId)).filter(Boolean) as { stops: string[]; count: number }[]
+  ).sort((a, b) => a.count - b.count)[0] ?? null;
+}
 
 function SearchPage() {
-  const [from, setFrom] = useState<Stop | null>(null);
-  const [to, setTo] = useState<Stop | null>(null);
+  const [from, setFrom] = useState<SearchStop | null>(null);
+  const [to, setTo] = useState<SearchStop | null>(null);
   const [selecting, setSelecting] = useState<"from" | "to" | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Route[] | null>(null);
+  const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
 
-  const filtered = ALL_STOPS_LIST.filter((s) =>
+  const filtered = SEARCH_STOPS.filter((s) =>
     s.name.toLowerCase().includes(query.toLowerCase())
   );
 
-  function handleSelect(stop: Stop) {
+  function handleSelect(stop: SearchStop) {
     if (selecting === "from") setFrom(stop);
     else setTo(stop);
     setSelecting(null);
     setQuery("");
     setResults(null);
+    setExpandedRouteId(null);
   }
 
   function swap() {
@@ -806,16 +906,16 @@ function SearchPage() {
     setFrom(to);
     setTo(tmp);
     setResults(null);
+    setExpandedRouteId(null);
   }
 
   function search() {
     if (!from || !to) return;
-    const found = ROUTES.filter((r) => {
-      const fi = r.stopIds.indexOf(from.id);
-      const ti = r.stopIds.indexOf(to.id);
-      return fi !== -1 && ti !== -1 && fi < ti;
-    });
+    const found = ROUTES
+      .filter((route) => getSearchRouteTrip(route, from, to))
+      .sort((a, b) => getSearchRouteTrip(a, from, to)!.count - getSearchRouteTrip(b, from, to)!.count);
     setResults(found);
+    setExpandedRouteId(null);
   }
 
   return (
@@ -885,12 +985,15 @@ function SearchPage() {
               </div>
             ) : (
               results.map((route) => {
-                const fi = route.stopIds.indexOf(from!.id);
-                const ti = route.stopIds.indexOf(to!.id);
-                const stopsCount = ti - fi;
+                const trip = getSearchRouteTrip(route, from!, to!)!;
+                const stopsCount = trip.count;
                 const avgTime = stopsCount * 4 + 2;
                 return (
-                  <div key={route.id} className="bg-white rounded-2xl p-4 shadow-sm">
+                  <button
+                    key={route.id}
+                    onClick={() => setExpandedRouteId(expandedRouteId === route.id ? null : route.id)}
+                    className="w-full bg-white rounded-2xl p-4 shadow-sm text-left"
+                  >
                     <div className="flex items-center gap-3 mb-3">
                       <div
                         className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold"
@@ -911,7 +1014,7 @@ function SearchPage() {
                     </div>
                     {/* Mini stop path */}
                     <div className="flex items-center gap-1 overflow-hidden">
-                      {route.stopIds.slice(fi, ti + 1).map((sid, i, arr) => {
+                      {trip.stops.map((sid, i, arr) => {
                         const s = STOPS[sid];
                         const isEnd = i === 0 || i === arr.length - 1;
                         return (
@@ -932,7 +1035,34 @@ function SearchPage() {
                         );
                       })}
                     </div>
-                  </div>
+                    <div className="text-[10px] font-semibold mt-3" style={{ color: route.color }}>
+                      {expandedRouteId === route.id ? "Hide complete route" : "View complete route"}
+                    </div>
+                    {expandedRouteId === route.id && (
+                      <div className="mt-3 pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+                        <div className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--muted)" }}>
+                          Complete Route · highlighted section is your journey
+                        </div>
+                        <div className="space-y-1">
+                          {route.stopIds.map((stopId, index) => {
+                            const stop = STOPS[stopId];
+                            const highlighted = trip.stops.includes(stopId);
+                            return (
+                              <div
+                                key={`${stopId}-${index}`}
+                                className="flex items-center gap-2 px-2 py-1 rounded-lg text-xs"
+                                style={{ background: highlighted ? `${route.color}18` : "transparent", color: highlighted ? route.color : "var(--muted)" }}
+                              >
+                                <span className="w-4 text-right">{index + 1}</span>
+                                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: highlighted ? route.color : "#D7D7E2" }} />
+                                <span className={highlighted ? "font-semibold" : ""}>{getCanonicalStopName(stop.name)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </button>
                 );
               })
             )}
@@ -991,19 +1121,17 @@ function SearchPage() {
 }
 
 // ─── Track Tab (GPS Live Tracking) ──────────────────────────────────────────
-function TrackPage() {
+function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: GeolocationPosition | null; gpsError: string | null; onRequestGps: () => void }) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [destStop, setDestStop] = useState<Stop | null>(null);
-  const [userPos, setUserPos] = useState<GeolocationPosition | null>(null);
   const [simulating, setSimulating] = useState(false);
   const [simIdx, setSimIdx] = useState(0);
-  const [geoError, setGeoError] = useState<string | null>(null);
   const [nearestStop, setNearestStop] = useState<Stop | null>(null);
   const [showRoutePicker, setShowRoutePicker] = useState(false);
   const [showDestPicker, setShowDestPicker] = useState(false);
   const [stopsAway, setStopsAway] = useState<number | null>(null);
   const simRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const watchRef = useRef<number | null>(null);
+  const userPos = gpsPosition;
 
   const routeStops = selectedRoute
     ? selectedRoute.stopIds.map((id) => STOPS[id]).filter(Boolean)
@@ -1042,21 +1170,8 @@ function TrackPage() {
     }
   }, [trackingPos, routeStops, destStop]);
 
-  // GPS watch
-  const startGps = useCallback(() => {
-    if (!navigator.geolocation) { setGeoError("Geolocation not supported."); return; }
-    watchRef.current = navigator.geolocation.watchPosition(
-      (pos) => { setUserPos(pos); setGeoError(null); },
-      () => setGeoError("Location access denied. Use demo mode."),
-      { enableHighAccuracy: true }
-    );
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
-      if (simRef.current !== null) clearInterval(simRef.current);
-    };
+  useEffect(() => () => {
+    if (simRef.current !== null) clearInterval(simRef.current);
   }, []);
 
   // Simulation
@@ -1292,7 +1407,7 @@ function TrackPage() {
         {/* Controls */}
         <div className="mx-3 mt-3 flex gap-2">
           <button
-            onClick={startGps}
+            onClick={onRequestGps}
             className="flex-1 py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 border"
             style={{ borderColor: "var(--purple)", color: "var(--purple)", background: "white" }}
           >
@@ -1311,9 +1426,9 @@ function TrackPage() {
           )}
         </div>
 
-        {geoError && (
+        {gpsError && (
           <div className="mx-3 mt-2 px-4 py-2 rounded-xl text-xs text-center" style={{ background: "#FEF2F2", color: "#DC2626" }}>
-            {geoError}
+            {gpsError}
           </div>
         )}
 
@@ -1324,8 +1439,38 @@ function TrackPage() {
 }
 
 // ─── App Root ────────────────────────────────────────────────────────────────
+function GpsPermissionModal({ onAllow, onCancel }: { onAllow: () => void; onCancel: () => void }) {
+  return (
+    <div className="absolute inset-0 z-[100] flex items-end" style={{ background: "rgba(15,23,42,0.45)" }}>
+      <div className="w-full rounded-t-3xl bg-white p-6 shadow-2xl">
+        <div className="w-10 h-10 rounded-2xl flex items-center justify-center mb-4" style={{ background: "var(--purple-pale)", color: "var(--purple)" }}>
+          <Icon path={ICONS.locate} size={22} />
+        </div>
+        <h2 className="text-lg font-extrabold" style={{ color: "var(--text)" }}>Allow location access?</h2>
+        <p className="text-sm mt-2 leading-5" style={{ color: "var(--muted)" }}>
+          CUHK Bus Routes uses your current location to show nearby stops and track your journey. Your location stays in this browser and is not saved by this app.
+        </p>
+        <div className="flex gap-3 mt-5">
+          <button onClick={onCancel} className="flex-1 py-3 rounded-2xl text-sm font-semibold" style={{ background: "var(--bg)", color: "var(--muted)" }}>Not now</button>
+          <button onClick={onAllow} className="flex-1 py-3 rounded-2xl text-sm font-bold text-white" style={{ background: "var(--purple)" }}>Allow GPS</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState<TabId>("routes");
+  const [gpsPrompt, setGpsPrompt] = useState(false);
+  const gps = useGpsLocation();
+
+  const requestGps = useCallback(() => setGpsPrompt(true), []);
+
+  useEffect(() => {
+    if (tab === "track" && !gps.position && !gps.error) {
+      setGpsPrompt(true);
+    }
+  }, [tab, gps.position, gps.error]);
 
   return (
     <div
@@ -1337,16 +1482,22 @@ export default function App() {
           <RoutesPage />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "arrival" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-          <ArrivalPage />
+          <ArrivalPage gpsPosition={gps.position} onRequestGps={requestGps} />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "search" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
           <SearchPage />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "track" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-          <TrackPage />
+          <TrackPage gpsPosition={gps.position} gpsError={gps.error} onRequestGps={requestGps} />
         </div>
       </div>
       <BottomNav active={tab} onChange={setTab} />
+      {gpsPrompt && (
+        <GpsPermissionModal
+          onCancel={() => setGpsPrompt(false)}
+          onAllow={() => { setGpsPrompt(false); gps.start(); }}
+        />
+      )}
     </div>
   );
 }
