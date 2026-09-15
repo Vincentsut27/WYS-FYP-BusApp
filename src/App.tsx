@@ -32,12 +32,12 @@ const STOPS: Record<string, Stop> = {
   stationPiazza: makeStop("stationPiazza", "Station Piazza", 22.41402418241919, 114.20951365384028),
   postgraduateHall1: makeStop("postgraduateHall1", "Postgraduate Hall 1", 22.420263, 114.212156),
   sports: makeStop("sports", "Univ. Sports Centre", 22.417786, 114.210515),
-  shawHall: makeStop("shawHall", "Sir Run Run Shaw Hall", 22.420094326533157, 114.20696456733404),
+  shawHall: makeStop("shawHall", "Sir Run Run Shaw Hall", 22.419865390456728, 114.20697616419724),
   fungKingHey: makeStop("fungKingHey", "Fung King Hey Bldg.", 22.420004165692188, 114.20314134034673),
   unitedUp: makeStop("unitedUp", "United College (Upward)", 22.42033254674031, 114.20540209166288),
   newAsia: makeStop("newAsia", "New Asia College", 22.421349, 114.207530),
   unitedDown: makeStop("unitedDown", "United College (Downward)", 22.42033254674031, 114.20540209166288),
-  admin: makeStop("admin", "Univ. Admin. Bldg.", 22.419028910474506, 114.20528086548592),
+  admin: makeStop("admin", "Univ. Admin. Bldg.", 22.418812277340415, 114.2053521300643),
   shHo: makeStop("shHo", "S.H. Ho College", 22.417999, 114.209951),
   universityStation: makeStop("universityStation", "Univ. Station", 22.414591596662277, 114.2103213737358),
   stationPiazzaNonTeaching: makeStop("stationPiazzaNonTeaching", "Station Piazza (non-teaching days)", 22.41402418241919, 114.20951365384028),
@@ -55,7 +55,7 @@ const STOPS: Record<string, Stop> = {
   circuitEastUp: makeStop("circuitEastUp", "Campus Circuit East (Upward)", 22.42081397563455, 114.21269586733412),
   circuitNorth: makeStop("circuitNorth", "Campus Circuit North", 22.425648654353616, 114.20674541151153),
   circuitEastDown: makeStop("circuitEastDown", "Campus Circuit East (Downward)", 22.42081397563455, 114.21269586733412),
-  scienceCentre: makeStop("scienceCentre", "Science Centre", 22.4200277014351, 114.20713655199226),
+  scienceCentre: makeStop("scienceCentre", "Science Centre", 22.419861083772084, 114.20719745848922),
   newAsiaCircle: makeStop("newAsiaCircle", "New Asia Circle", 22.42074677568737, 114.20833786918209),
   wuYeeSunUp: makeStop("wuYeeSunUp", "Wu Yee Sun College (Upward)", 22.42118818776006, 114.2034603496885),
   wuYeeSunDown: makeStop("wuYeeSunDown", "Wu Yee Sun College (Downward)", 22.42118818776006, 114.2034603496885),
@@ -81,7 +81,7 @@ const ROUTES: Route[] = [
     operatingDays: "Mon – Sat (Suspended on Sunday & Public Holidays)",
     serviceHours: "07:40 – 18:55",
     frequency: "Every 10, 25, 40, 55 minutes",
-    stopIds: ["stationPiazza","sports","shawHall","fungKingHey","unitedUp","newAsia","unitedDown","admin","shHo","universityStation"],
+    stopIds: ["universityStation","sports","shawHall","admin","shHo","universityStation"],
   },
   {
     id: "2",
@@ -251,7 +251,7 @@ function useGpsLocation() {
       (geoError) => {
         setError(geoError.code === 1 ? "Location access was denied." : "Unable to get your current location.");
       },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
     );
   }, []);
 
@@ -313,12 +313,27 @@ const CAMPUS_CENTER: [number, number] = [22.419, 114.207];
 
 function MapViewport({ points }: { points: [number, number][] }) {
   const map = useMap();
+  const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join(";");
 
   useEffect(() => {
     if (points.length > 1) {
       map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
     }
-  }, [map, points]);
+  }, [map, pointsKey]);
+
+  return null;
+}
+
+function MapSizeSync() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    const resizeObserver = new ResizeObserver(() => map.invalidateSize({ animate: false }));
+    resizeObserver.observe(container);
+    map.invalidateSize({ animate: false });
+    return () => resizeObserver.disconnect();
+  }, [map]);
 
   return null;
 }
@@ -328,6 +343,7 @@ function UserMapFocus({ position, active }: { position?: [number, number] | null
 
   useEffect(() => {
     if (active && position) {
+      map.invalidateSize({ animate: false });
       map.setView(position, 17, { animate: true });
     }
   }, [active, map, position]);
@@ -417,6 +433,7 @@ function CampusMap({
         className="h-full w-full"
       >
         <ZoomControl position="bottomright" />
+      <MapSizeSync />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -985,7 +1002,7 @@ function isRouteOperatingNow(route: Route, date = new Date()) {
   return currentMinutes >= window[0] && currentMinutes <= window[1];
 }
 
-function SearchPage({ onNotify }: { onNotify: (journey: JourneyNotification) => void }) {
+function SearchPage({ onNotify, gpsPosition }: { onNotify: (journey: JourneyNotification) => void; gpsPosition: GeolocationPosition | null }) {
   const [from, setFrom] = useState<SearchStop | null>(null);
   const [to, setTo] = useState<SearchStop | null>(null);
   const [selecting, setSelecting] = useState<"from" | "to" | null>(null);
@@ -993,6 +1010,19 @@ function SearchPage({ onNotify }: { onNotify: (journey: JourneyNotification) => 
   const [results, setResults] = useState<Route[] | null>(null);
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
   const [searchedAt, setSearchedAt] = useState<Date | null>(null);
+  const [hasDirectRoute, setHasDirectRoute] = useState<boolean | null>(null);
+  const userPosition: [number, number] | null = gpsPosition
+    ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
+    : null;
+
+  const closestSearchStopId = userPosition
+    ? SEARCH_STOPS.reduce((closest, stop) => {
+        if (!closest) return stop.id;
+        return getDistance(userPosition[0], userPosition[1], stop.lat, stop.lng) < getDistance(userPosition[0], userPosition[1], SEARCH_STOPS.find((candidate) => candidate.id === closest)!.lat, SEARCH_STOPS.find((candidate) => candidate.id === closest)!.lng)
+          ? stop.id
+          : closest;
+      }, "" as string)
+    : null;
 
   const filtered = SEARCH_STOPS.filter((s) =>
     s.name.toLowerCase().includes(query.toLowerCase())
@@ -1006,6 +1036,7 @@ function SearchPage({ onNotify }: { onNotify: (journey: JourneyNotification) => 
     setResults(null);
     setExpandedRouteId(null);
     setSearchedAt(null);
+    setHasDirectRoute(null);
   }
 
   function swap() {
@@ -1015,17 +1046,20 @@ function SearchPage({ onNotify }: { onNotify: (journey: JourneyNotification) => 
     setResults(null);
     setExpandedRouteId(null);
     setSearchedAt(null);
+    setHasDirectRoute(null);
   }
 
   function search() {
     if (!from || !to) return;
     const now = new Date();
+    const directRoutes = ROUTES.filter((route) => getSearchRouteTrip(route, from, to));
     const found = ROUTES
       .filter((route) => getSearchRouteTrip(route, from, to) && isRouteOperatingNow(route, now))
       .sort((a, b) => getSearchRouteTrip(a, from, to)!.count - getSearchRouteTrip(b, from, to)!.count);
     setResults(found);
     setExpandedRouteId(null);
     setSearchedAt(now);
+    setHasDirectRoute(directRoutes.length > 0);
   }
 
   return (
@@ -1092,7 +1126,9 @@ function SearchPage({ onNotify }: { onNotify: (journey: JourneyNotification) => 
             </div>
             {results.length === 0 ? (
               <div className="bg-white rounded-2xl p-6 text-center" style={{ color: "var(--muted)" }}>
-                No bus on these routes is currently operating. Check the service hours or search again later.
+                {hasDirectRoute
+                  ? "A direct bus route exists, but none is operating at this time. Check the service hours or search again later."
+                  : "No direct one-way bus route connects these stops."}
               </div>
             ) : (
               results.map((route) => {
@@ -1230,7 +1266,12 @@ function SearchPage({ onNotify }: { onNotify: (journey: JourneyNotification) => 
                 style={{ borderColor: "var(--border)" }}
               >
                 <Icon path={ICONS.locate} size={16} className="flex-shrink-0" style={{ color: "var(--purple)" }} />
-                <span className="text-sm" style={{ color: "var(--text)" }}>{stop.name}</span>
+                <div className="flex-1">
+                  <span className="text-sm" style={{ color: "var(--text)" }}>{stop.name}</span>
+                  {closestSearchStopId === stop.id && (
+                    <div className="text-[10px] font-semibold mt-0.5" style={{ color: "#16A34A" }}>Closest to your current location</div>
+                  )}
+                </div>
               </button>
             ))}
           </div>
@@ -1693,7 +1734,7 @@ export default function App() {
           <ArrivalPage gpsPosition={gps.position} onRequestGps={requestGps} />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "search" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-          <SearchPage onNotify={notifyJourney} />
+          <SearchPage onNotify={notifyJourney} gpsPosition={gps.position} />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "track" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
           <TrackPage gpsPosition={gps.position} gpsError={gps.error} onRequestGps={requestGps} />
