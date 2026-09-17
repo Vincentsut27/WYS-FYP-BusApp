@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, ZoomControl, useMap } from "react-leaflet";
+import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, ZoomControl, useMap } from "react-leaflet";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ const STOPS: Record<string, Stop> = {
   circuitNorth: makeStop("circuitNorth", "Campus Circuit North", 22.425648654353616, 114.20674541151153),
   circuitEastDown: makeStop("circuitEastDown", "Campus Circuit East (Downward)", 22.42081397563455, 114.21269586733412),
   scienceCentre: makeStop("scienceCentre", "Science Centre", 22.419861083772084, 114.20719745848922),
-  newAsiaCircle: makeStop("newAsiaCircle", "New Asia Circle", 22.42074677568737, 114.20833786918209),
+  newAsiaCircle: makeStop("newAsiaCircle", "New Asia Circle", 22.421072776114638, 114.20765936415471),
   wuYeeSunUp: makeStop("wuYeeSunUp", "Wu Yee Sun College (Upward)", 22.42118818776006, 114.2034603496885),
   wuYeeSunDown: makeStop("wuYeeSunDown", "Wu Yee Sun College (Downward)", 22.42118818776006, 114.2034603496885),
   area39: makeStop("area39", "Area 39 (Upward)", 22.427561, 114.204514),
@@ -234,20 +235,75 @@ function getCanonicalStopName(name: string) {
     .trim();
 }
 
+function getHeadingFromMovement(previous: { lat: number; lng: number } | null, current: GeolocationPosition) {
+  if (current.coords.heading != null && !Number.isNaN(current.coords.heading)) return current.coords.heading;
+  if (!previous) return 0;
+  const lat1 = (previous.lat * Math.PI) / 180;
+  const lat2 = (current.coords.latitude * Math.PI) / 180;
+  const lng1 = (previous.lng * Math.PI) / 180;
+  const lng2 = (current.coords.longitude * Math.PI) / 180;
+  const dLng = lng2 - lng1;
+  const x = Math.sin(dLng) * Math.cos(lat2);
+  const y = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  const angle = (Math.atan2(x, y) * 180) / Math.PI;
+  return (angle + 360) % 360;
+}
+
 function useGpsLocation() {
   const [position, setPosition] = useState<GeolocationPosition | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [heading, setHeading] = useState<number>(0);
   const watchRef = useRef<number | null>(null);
+  const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
+  const orientationListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (!navigator.geolocation) {
       setError("This browser does not support GPS.");
       return;
     }
     if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
     setError(null);
+
+    if (window.DeviceOrientationEvent) {
+      const permApi = DeviceOrientationEvent as typeof DeviceOrientationEvent & { requestPermission?: () => Promise<"granted" | "denied"> };
+      const hasPermissionApi = typeof permApi.requestPermission === "function";
+      if (hasPermissionApi) {
+        const permissionStatus = await permApi.requestPermission?.();
+        if (permissionStatus && permissionStatus !== "granted") {
+          setError("Motion access is unavailable on this device.");
+        }
+      }
+
+      if (orientationListenerRef.current) {
+        window.removeEventListener("deviceorientation", orientationListenerRef.current);
+      }
+
+      orientationListenerRef.current = (event: DeviceOrientationEvent) => {
+        const orientationEvent = event as DeviceOrientationEvent & { webkitCompassHeading?: number };
+        const alpha = typeof orientationEvent.webkitCompassHeading === "number" ? orientationEvent.webkitCompassHeading : event.alpha;
+        if (typeof alpha === "number" && !Number.isNaN(alpha)) {
+          setHeading((360 - alpha) % 360);
+          return;
+        }
+        const gamma = typeof event.gamma === "number" ? event.gamma : 0;
+        const beta = typeof event.beta === "number" ? event.beta : 0;
+        const angle = (Math.atan2(gamma, beta) * 180) / Math.PI + 90;
+        setHeading((360 - angle + 360) % 360);
+      };
+      window.addEventListener("deviceorientation", orientationListenerRef.current);
+    }
+
     watchRef.current = navigator.geolocation.watchPosition(
-      (nextPosition) => { setPosition(nextPosition); setError(null); },
+      (nextPosition) => {
+        setPosition(nextPosition);
+        setHeading((existingHeading) => {
+          const gpsHeading = getHeadingFromMovement(previousPositionRef.current, nextPosition);
+          return gpsHeading !== 0 || existingHeading !== 0 ? gpsHeading : existingHeading;
+        });
+        previousPositionRef.current = { lat: nextPosition.coords.latitude, lng: nextPosition.coords.longitude };
+        setError(null);
+      },
       (geoError) => {
         setError(geoError.code === 1 ? "Location access was denied." : "Unable to get your current location.");
       },
@@ -257,9 +313,12 @@ function useGpsLocation() {
 
   useEffect(() => () => {
     if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+    if (orientationListenerRef.current) {
+      window.removeEventListener("deviceorientation", orientationListenerRef.current);
+    }
   }, []);
 
-  return { position, error, start };
+  return { position, error, heading, start };
 }
 
 function playArrivalTone() {
@@ -310,16 +369,47 @@ const ICONS = {
 
 // ─── Real campus map ─────────────────────────────────────────────────────────
 const CAMPUS_CENTER: [number, number] = [22.419, 114.207];
+const ROUTE_ACCENT = "#7C2D9C";
+const ROUTE_HIGHLIGHT = "#8B5CF6";
+const ROAD_PATH_CACHE: Record<string, [number, number][]> = {};
+
+async function fetchRoadPath(points: [number, number][]) {
+  if (points.length < 2) return points;
+  const coordinates = points.map(([lat, lng]) => `${lng},${lat}`).join(";");
+  const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`);
+  if (!response.ok) return points;
+  const data = await response.json();
+  const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
+  if (!Array.isArray(routeCoordinates)) return points;
+  return routeCoordinates.map(([lng, lat]: [number, number]) => [lat, lng] as [number, number]);
+}
 
 function MapViewport({ points }: { points: [number, number][] }) {
   const map = useMap();
   const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join(";");
 
   useEffect(() => {
+    if (points.length === 1) {
+      map.setView(points[0], Math.max(map.getZoom(), 17), { animate: true });
+      return;
+    }
     if (points.length > 1) {
       map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
     }
   }, [map, pointsKey]);
+
+  return null;
+}
+
+function MapFocusStop({ stopId, active }: { stopId?: string; active: boolean }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!active || !stopId) return;
+    const stop = STOPS[stopId];
+    if (!stop) return;
+    map.setView([stop.lat, stop.lng], Math.max(map.getZoom(), 17), { animate: true });
+  }, [active, map, stopId]);
 
   return null;
 }
@@ -354,6 +444,7 @@ function UserMapFocus({ position, active }: { position?: [number, number] | null
 function CampusMap({
   routeId,
   highlightStopId,
+  focusStopId,
   userPos,
   vehiclePos,
   highlightPath,
@@ -361,9 +452,12 @@ function CampusMap({
   showAllStops = false,
   onStopClick,
   height = 240,
+  rotation = 0,
+  userHeading = 0,
 }: {
   routeId?: string;
   highlightStopId?: string;
+  focusStopId?: string;
   userPos?: [number, number] | null; // latitude, longitude
   vehiclePos?: [number, number] | null; // simulated bus latitude, longitude
   highlightPath?: [number, number][];
@@ -371,12 +465,14 @@ function CampusMap({
   showAllStops?: boolean;
   onStopClick?: (stop: Stop) => void;
   height?: number;
+  rotation?: number;
+  userHeading?: number;
 }) {
   const route = routeId ? ROUTES.find((r) => r.id === routeId) : null;
   const routeStops = route ? route.stopIds.map((id) => STOPS[id]).filter(Boolean) : [];
   const displayStops = (showAllStops ? Object.values(STOPS) : routeStops)
     .filter((stop, index, stops) => stops.findIndex((candidate) => candidate.id === stop.id) === index);
-  const routeColor = route?.color ?? "#7C2D9C";
+  const routeColor = route?.color ?? ROUTE_ACCENT;
   const routePath = routeStops.map((stop) => [stop.lat, stop.lng] as [number, number]);
   const [roadPath, setRoadPath] = useState<[number, number][] | null>(null);
   const [highlightRoadPath, setHighlightRoadPath] = useState<[number, number][] | null>(null);
@@ -387,21 +483,23 @@ function CampusMap({
       return;
     }
 
-    const controller = new AbortController();
-    const coordinates = routePath.map(([lat, lng]) => `${lng},${lat}`).join(";");
-    fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`, {
-      signal: controller.signal,
-    })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Routing request failed")))
-      .then((data) => {
-        const coordinates = data.routes?.[0]?.geometry?.coordinates;
-        if (Array.isArray(coordinates)) {
-          setRoadPath(coordinates.map(([lng, lat]: [number, number]) => [lat, lng]));
-        }
-      })
-      .catch(() => setRoadPath(null));
+    if (route.id in ROAD_PATH_CACHE) {
+      setRoadPath(ROAD_PATH_CACHE[route.id]);
+      return;
+    }
 
-    return () => controller.abort();
+    let active = true;
+    fetchRoadPath(routePath)
+      .then((nextPath) => {
+        if (!active) return;
+        ROAD_PATH_CACHE[route.id] = nextPath;
+        setRoadPath(nextPath);
+      })
+      .catch(() => {
+        if (active) setRoadPath(null);
+      });
+
+    return () => { active = false; };
   }, [routeId]);
 
   useEffect(() => {
@@ -424,7 +522,7 @@ function CampusMap({
   const renderedPath = roadPath ?? routePath;
 
   return (
-    <div className="relative w-full overflow-hidden" style={{ height }}>
+    <div className="relative w-full overflow-hidden" style={{ height, transform: `rotate(${rotation}deg)`, transformOrigin: "center center" }}>
       <MapContainer
         center={CAMPUS_CENTER}
         zoom={15}
@@ -433,18 +531,19 @@ function CampusMap({
         className="h-full w-full"
       >
         <ZoomControl position="bottomright" />
-      <MapSizeSync />
+        <MapSizeSync />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <MapViewport points={renderedPath.length > 1 ? renderedPath : displayStops.map((stop) => [stop.lat, stop.lng])} />
+        <MapFocusStop stopId={focusStopId} active={Boolean(focusStopId)} />
         <UserMapFocus position={userPos} active={focusUser} />
-        {route && renderedPath.length > 1 && (
-          <Polyline positions={renderedPath} pathOptions={{ color: routeColor, weight: 5, opacity: 0.9 }} />
+        {route && roadPath && roadPath.length > 1 && (
+          <Polyline positions={roadPath} pathOptions={{ color: routeColor, weight: 5, opacity: 0.9 }} />
         )}
         {highlightPath && highlightPath.length > 1 && (
-          <Polyline positions={highlightRoadPath ?? highlightPath} pathOptions={{ color: "#F59E0B", weight: 8, opacity: 0.95 }} />
+          <Polyline positions={highlightRoadPath ?? highlightPath} pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 8, opacity: 0.95 }} />
         )}
         {displayStops.map((stop) => {
           const isHighlighted = stop.id === highlightStopId;
@@ -457,7 +556,7 @@ function CampusMap({
               pathOptions={{
                 color: "white",
                 weight: isHighlighted ? 3 : 2,
-                fillColor: isHighlighted ? routeColor : isRouteStop ? "#F5C518" : "#8B8BA7",
+                fillColor: isHighlighted ? ROUTE_ACCENT : isRouteStop ? "#A78BFA" : "#1D4ED8",
                 fillOpacity: 1,
               }}
               eventHandlers={{ click: () => onStopClick?.(stop) }}
@@ -467,11 +566,18 @@ function CampusMap({
           );
         })}
         {userPos && (
-          <CircleMarker
-            center={userPos}
-            radius={8}
-            pathOptions={{ color: "white", weight: 2, fillColor: "#3B82F6", fillOpacity: 1 }}
-          />
+          <Marker
+            position={userPos}
+            icon={L.divIcon({
+              className: "user-direction-marker",
+              html: `<div style="width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:18px solid #2563EB;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.35));transform:rotate(${userHeading}deg);margin-top:-2px;"></div>`,
+              iconSize: [22, 22],
+              iconAnchor: [11, 18],
+              popupAnchor: [0, -16],
+            })}
+          >
+            <Popup>Your location</Popup>
+          </Marker>
         )}
         {vehiclePos && (
           <CircleMarker
@@ -569,6 +675,7 @@ function RoutesPage() {
           <CampusMap
             routeId={selectedRoute.id}
             highlightStopId={highlightStop ?? undefined}
+            focusStopId={highlightStop ?? undefined}
             height={220}
             onStopClick={(s) => setHighlightStop(s.id === highlightStop ? null : s.id)}
           />
@@ -724,7 +831,7 @@ function RoutesPage() {
 }
 
 // ─── Arrival Tab ─────────────────────────────────────────────────────────────
-function ArrivalPage({ gpsPosition, onRequestGps }: { gpsPosition: GeolocationPosition | null; onRequestGps: () => void }) {
+function ArrivalPage({ gpsPosition, onRequestGps, userHeading }: { gpsPosition: GeolocationPosition | null; onRequestGps: () => void; userHeading?: number | null }) {
   const [subTab, setSubTab] = useState<"nearby" | "stops">("nearby");
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const userPos: [number, number] | null = gpsPosition
@@ -759,7 +866,7 @@ function ArrivalPage({ gpsPosition, onRequestGps }: { gpsPosition: GeolocationPo
         <div className="flex-1 scrollable">
           <div className="p-3">
             <div className="rounded-2xl overflow-hidden shadow-sm">
-              <CampusMap highlightStopId={selectedStop.id} userPos={userPos} height={180} />
+              <CampusMap highlightStopId={selectedStop.id} userPos={userPos} height={180} userHeading={userHeading ?? 0} />
             </div>
           </div>
           {stopRoutes.length === 0 ? (
@@ -867,6 +974,7 @@ function ArrivalPage({ gpsPosition, onRequestGps }: { gpsPosition: GeolocationPo
           height={190}
           onStopClick={(s) => setSelectedStop(s)}
           highlightStopId={undefined}
+          userHeading={userHeading ?? 0}
         />
       </div>
 
@@ -1002,7 +1110,7 @@ function isRouteOperatingNow(route: Route, date = new Date()) {
   return currentMinutes >= window[0] && currentMinutes <= window[1];
 }
 
-function SearchPage({ onNotify, gpsPosition }: { onNotify: (journey: JourneyNotification) => void; gpsPosition: GeolocationPosition | null }) {
+function SearchPage({ onNotify, gpsPosition, onRequestGps }: { onNotify: (journey: JourneyNotification) => void; gpsPosition: GeolocationPosition | null; onRequestGps: () => void }) {
   const [from, setFrom] = useState<SearchStop | null>(null);
   const [to, setTo] = useState<SearchStop | null>(null);
   const [selecting, setSelecting] = useState<"from" | "to" | null>(null);
@@ -1039,6 +1147,12 @@ function SearchPage({ onNotify, gpsPosition }: { onNotify: (journey: JourneyNoti
     setHasDirectRoute(null);
   }
 
+  useEffect(() => {
+    if (!gpsPosition || !from || !to) return;
+    const closestFrom = closestSearchStopId && from.id === closestSearchStopId ? from : from;
+    void closestFrom;
+  }, [gpsPosition, from, to, closestSearchStopId]);
+
   function swap() {
     const tmp = from;
     setFrom(to);
@@ -1050,7 +1164,14 @@ function SearchPage({ onNotify, gpsPosition }: { onNotify: (journey: JourneyNoti
   }
 
   function search() {
-    if (!from || !to) return;
+    if (!from || !to) {
+      if (!gpsPosition) onRequestGps();
+      return;
+    }
+    if (!gpsPosition) {
+      onRequestGps();
+      return;
+    }
     const now = new Date();
     const directRoutes = ROUTES.filter((route) => getSearchRouteTrip(route, from, to));
     const found = ROUTES
@@ -1070,7 +1191,10 @@ function SearchPage({ onNotify, gpsPosition }: { onNotify: (journey: JourneyNoti
         {/* From/To inputs */}
         <div className="relative">
           <button
-            onClick={() => setSelecting("from")}
+            onClick={() => {
+              if (!gpsPosition) onRequestGps();
+              setSelecting("from");
+            }}
             className="w-full text-left px-4 py-3.5 rounded-2xl border mb-2 flex items-center gap-3"
             style={{
               borderColor: selecting === "from" ? "var(--purple)" : "var(--border)",
@@ -1092,7 +1216,10 @@ function SearchPage({ onNotify, gpsPosition }: { onNotify: (journey: JourneyNoti
           </button>
 
           <button
-            onClick={() => setSelecting("to")}
+            onClick={() => {
+              if (!gpsPosition) onRequestGps();
+              setSelecting("to");
+            }}
             className="w-full text-left px-4 py-3.5 rounded-2xl border flex items-center gap-3"
             style={{
               borderColor: selecting === "to" ? "var(--purple)" : "var(--border)",
@@ -1282,7 +1409,7 @@ function SearchPage({ onNotify, gpsPosition }: { onNotify: (journey: JourneyNoti
 }
 
 // ─── Track Tab (GPS Live Tracking) ──────────────────────────────────────────
-function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: GeolocationPosition | null; gpsError: string | null; onRequestGps: () => void }) {
+function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPosition: GeolocationPosition | null; gpsError: string | null; onRequestGps: () => void; userHeading?: number | null }) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [destStop, setDestStop] = useState<Stop | null>(null);
   const [startStop, setStartStop] = useState<Stop | null>(null);
@@ -1338,13 +1465,32 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
     }
   }, [trackingPos, routeStops, destStop, startStop, startStopManuallySet]);
 
-  const highlightPath = useMemo(() => {
+  const highlightPath = useMemo<[number, number][]>(() => {
     if (!startStop || !destStop) return [];
     const startIndex = routeStops.findIndex((stop) => stop.id === startStop.id);
     const destinationIndex = routeStops.findIndex((stop) => stop.id === destStop.id);
     if (startIndex < 0 || destinationIndex <= startIndex) return [];
-    return routeStops.slice(startIndex, destinationIndex + 1).map((stop) => [stop.lat, stop.lng] as [number, number]);
-  }, [routeStops, startStop, destStop]);
+
+    const userIndex = userSvg ? routeStops.reduce((best, stop, idx) => {
+      const bestDistance = getDistance(userSvg[0], userSvg[1], routeStops[best].lat, routeStops[best].lng);
+      const candidateDistance = getDistance(userSvg[0], userSvg[1], stop.lat, stop.lng);
+      return candidateDistance < bestDistance ? idx : best;
+    }, startIndex) : startIndex;
+
+    const visibleStartIndex = Math.max(startIndex, Math.min(userIndex, destinationIndex));
+    const visibleStops = routeStops.slice(visibleStartIndex, destinationIndex + 1);
+    const visiblePath: [number, number][] = visibleStops.map((stop) => [stop.lat, stop.lng]);
+
+    if (userSvg && userIndex < startIndex) {
+      return [[userSvg[0], userSvg[1]], ...visiblePath];
+    }
+
+    if (userSvg && userIndex > startIndex && userIndex < destinationIndex) {
+      return visiblePath;
+    }
+
+    return visiblePath;
+  }, [routeStops, startStop, destStop, userSvg]);
 
   useEffect(() => {
     if (!userSvg || !destStop) return;
@@ -1537,7 +1683,46 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps }: { gpsPosition: Geolo
         {/* Map */}
         <div className="mx-3 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
           {selectedRoute ? (
-            <CampusMap routeId={selectedRoute.id} userPos={userSvg} vehiclePos={vehiclePos} highlightPath={highlightPath} focusUser={tripStarted} highlightStopId={nearestStop?.id} height={tripStarted ? 520 : 240} />
+            <div className="relative">
+              <CampusMap
+                routeId={selectedRoute.id}
+                userPos={userSvg}
+                vehiclePos={vehiclePos}
+                highlightPath={highlightPath}
+                focusUser={tripStarted}
+                highlightStopId={nearestStop?.id}
+                focusStopId={destStop?.id ?? startStop?.id ?? undefined}
+                height={tripStarted ? 520 : 240}
+                rotation={0}
+                userHeading={userHeading ?? 0}
+              />
+              <div className="absolute right-2 top-2 z-[500] flex gap-1">
+                <button
+                  onClick={() => {
+                    const next = -15;
+                    const mapRoot = document.querySelector(".leaflet-container") as HTMLElement | null;
+                    if (mapRoot) mapRoot.style.transform = `rotate(${next}deg)`;
+                  }}
+                  className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
+                  style={{ color: "var(--purple)" }}
+                  aria-label="Rotate left"
+                >
+                  ↺
+                </button>
+                <button
+                  onClick={() => {
+                    const next = 15;
+                    const mapRoot = document.querySelector(".leaflet-container") as HTMLElement | null;
+                    if (mapRoot) mapRoot.style.transform = `rotate(${next}deg)`;
+                  }}
+                  className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
+                  style={{ color: "var(--purple)" }}
+                  aria-label="Rotate right"
+                >
+                  ↻
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-[240px]" style={{ background: "#E8EDF2" }}>
               <Icon path={ICONS.map} size={40} className="opacity-20 mb-2" />
@@ -1731,13 +1916,13 @@ export default function App() {
           <RoutesPage />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "arrival" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-          <ArrivalPage gpsPosition={gps.position} onRequestGps={requestGps} />
+          <ArrivalPage gpsPosition={gps.position} onRequestGps={requestGps} userHeading={gps.heading} />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "search" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-          <SearchPage onNotify={notifyJourney} gpsPosition={gps.position} />
+          <SearchPage onNotify={notifyJourney} gpsPosition={gps.position} onRequestGps={requestGps} />
         </div>
         <div className={`absolute inset-0 transition-opacity duration-200 ${tab === "track" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}>
-          <TrackPage gpsPosition={gps.position} gpsError={gps.error} onRequestGps={requestGps} />
+          <TrackPage gpsPosition={gps.position} gpsError={gps.error} onRequestGps={requestGps} userHeading={gps.heading} />
         </div>
       </div>
       <BottomNav active={tab} onChange={setTab} />
