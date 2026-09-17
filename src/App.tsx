@@ -571,13 +571,13 @@ function CampusMap({
             icon={L.divIcon({
               className: "user-direction-marker",
               html: `
-                <div style="position:relative;width:22px;height:22px;transform:rotate(${userHeading}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));">
-                  <div style="position:absolute;left:50%;top:2px;transform:translateX(-50%);width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:16px solid #2563EB;"></div>
-                </div>
+                <svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;">
+                  <polygon points="32,4 56,46 40,46 40,60 24,60 24,46 8,46" fill="#2563EB" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linejoin="round" />
+                </svg>
               `,
-              iconSize: [22, 22],
-              iconAnchor: [11, 11],
-              popupAnchor: [0, -14],
+              iconSize: [28, 28],
+              iconAnchor: [14, 14],
+              popupAnchor: [0, -18],
             })}
           >
             <Popup>Your location</Popup>
@@ -1840,9 +1840,9 @@ function GpsPermissionModal({ onAllow, onCancel }: { onAllow: () => void; onCanc
         <div className="w-10 h-10 rounded-2xl flex items-center justify-center mb-4" style={{ background: "var(--purple-pale)", color: "var(--purple)" }}>
           <Icon path={ICONS.locate} size={22} />
         </div>
-        <h2 className="text-lg font-extrabold" style={{ color: "var(--text)" }}>Allow location access?</h2>
+        <h2 className="text-lg font-extrabold" style={{ color: "var(--text)" }}>Allow location and motion access?</h2>
         <p className="text-sm mt-2 leading-5" style={{ color: "var(--muted)" }}>
-          CUHK Bus Routes uses your current location to show nearby stops and track your journey. Your location stays in this browser and is not saved by this app.
+          CUHK Bus Routes uses your location and motion/orientation data to show nearby stops, point the user arrow in the right direction, and track your journey accurately. Your data stays in this browser and is not saved by this app.
         </p>
         <div className="flex gap-3 mt-5">
           <button onClick={onCancel} className="flex-1 py-3 rounded-2xl text-sm font-semibold" style={{ background: "var(--bg)", color: "var(--muted)" }}>Not now</button>
@@ -1890,10 +1890,16 @@ export default function App() {
   }, [gps.position, journeyNotification, journeyAlert]);
 
   useEffect(() => {
-    if ((tab === "search" || tab === "track") && !gps.position && !gps.error) {
+    if ((tab === "arrival" || tab === "search" || tab === "track") && !gps.position && !gps.error) {
       setGpsPrompt(true);
     }
   }, [tab, gps.position, gps.error]);
+
+  useEffect(() => {
+    if (tab === "arrival" || tab === "search") {
+      void gps.start();
+    }
+  }, [tab, gps]);
 
   return (
     <div
