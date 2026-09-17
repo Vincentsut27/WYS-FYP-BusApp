@@ -283,13 +283,13 @@ function useGpsLocation() {
         const orientationEvent = event as DeviceOrientationEvent & { webkitCompassHeading?: number };
         const alpha = typeof orientationEvent.webkitCompassHeading === "number" ? orientationEvent.webkitCompassHeading : event.alpha;
         if (typeof alpha === "number" && !Number.isNaN(alpha)) {
-          setHeading((360 - alpha) % 360);
+          setHeading(alpha % 360);
           return;
         }
         const gamma = typeof event.gamma === "number" ? event.gamma : 0;
         const beta = typeof event.beta === "number" ? event.beta : 0;
         const angle = (Math.atan2(gamma, beta) * 180) / Math.PI + 90;
-        setHeading((360 - angle + 360) % 360);
+        setHeading((angle + 360) % 360);
       };
       window.addEventListener("deviceorientation", orientationListenerRef.current);
     }
@@ -570,10 +570,15 @@ function CampusMap({
             position={userPos}
             icon={L.divIcon({
               className: "user-direction-marker",
-              html: `<div style="width:0;height:0;border-left:10px solid transparent;border-right:10px solid transparent;border-bottom:18px solid #2563EB;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.35));transform:rotate(${userHeading}deg);margin-top:-2px;"></div>`,
+              html: `
+                <div style="position:relative;width:22px;height:22px;transform:rotate(${userHeading}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));">
+                  <div style="position:absolute;left:50%;top:2px;transform:translateX(-50%);width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:16px solid #2563EB;"></div>
+                  <div style="position:absolute;left:50%;bottom:2px;transform:translateX(-50%);width:10px;height:10px;border-radius:9999px;background:#1D4ED8;box-shadow:0 0 0 2px rgba(255,255,255,0.9);"></div>
+                </div>
+              `,
               iconSize: [22, 22],
-              iconAnchor: [11, 18],
-              popupAnchor: [0, -16],
+              iconAnchor: [11, 11],
+              popupAnchor: [0, -14],
             })}
           >
             <Popup>Your location</Popup>
