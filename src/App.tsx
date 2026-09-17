@@ -573,7 +573,6 @@ function CampusMap({
               html: `
                 <div style="position:relative;width:22px;height:22px;transform:rotate(${userHeading}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));">
                   <div style="position:absolute;left:50%;top:2px;transform:translateX(-50%);width:0;height:0;border-left:9px solid transparent;border-right:9px solid transparent;border-bottom:16px solid #2563EB;"></div>
-                  <div style="position:absolute;left:50%;bottom:2px;transform:translateX(-50%);width:10px;height:10px;border-radius:9999px;background:#1D4ED8;box-shadow:0 0 0 2px rgba(255,255,255,0.9);"></div>
                 </div>
               `,
               iconSize: [22, 22],
@@ -1471,31 +1470,14 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
   }, [trackingPos, routeStops, destStop, startStop, startStopManuallySet]);
 
   const highlightPath = useMemo<[number, number][]>(() => {
-    if (!startStop || !destStop) return [];
+    if (!routeStops.length || !startStop || !destStop) return [];
+
     const startIndex = routeStops.findIndex((stop) => stop.id === startStop.id);
     const destinationIndex = routeStops.findIndex((stop) => stop.id === destStop.id);
     if (startIndex < 0 || destinationIndex <= startIndex) return [];
 
-    const userIndex = userSvg ? routeStops.reduce((best, stop, idx) => {
-      const bestDistance = getDistance(userSvg[0], userSvg[1], routeStops[best].lat, routeStops[best].lng);
-      const candidateDistance = getDistance(userSvg[0], userSvg[1], stop.lat, stop.lng);
-      return candidateDistance < bestDistance ? idx : best;
-    }, startIndex) : startIndex;
-
-    const visibleStartIndex = Math.max(startIndex, Math.min(userIndex, destinationIndex));
-    const visibleStops = routeStops.slice(visibleStartIndex, destinationIndex + 1);
-    const visiblePath: [number, number][] = visibleStops.map((stop) => [stop.lat, stop.lng]);
-
-    if (userSvg && userIndex < startIndex) {
-      return [[userSvg[0], userSvg[1]], ...visiblePath];
-    }
-
-    if (userSvg && userIndex > startIndex && userIndex < destinationIndex) {
-      return visiblePath;
-    }
-
-    return visiblePath;
-  }, [routeStops, startStop, destStop, userSvg]);
+    return routeStops.slice(startIndex, destinationIndex + 1).map((stop) => [stop.lat, stop.lng]);
+  }, [routeStops, startStop, destStop]);
 
   useEffect(() => {
     if (!userSvg || !destStop) return;
@@ -1662,14 +1644,16 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
 
       <div className="flex-1 scrollable">
         {arrivalAlert && destStop && (
-          <div className="mx-3 mt-3 p-4 rounded-2xl shadow-sm" style={{ background: "#FEF3C7", border: "1.5px solid #F59E0B" }}>
-            <div className="flex items-start gap-3">
-              <Icon path={ICONS.alert} size={20} style={{ color: "#D97706" }} />
-              <div className="flex-1">
-                <div className="text-sm font-bold" style={{ color: "#92400E" }}>You are about to arrive</div>
-                <div className="text-xs mt-1" style={{ color: "#B45309" }}>{destStop.name} is nearby.</div>
+          <div className="absolute inset-0 z-[90] flex items-center justify-center p-5" style={{ background: "rgba(15,23,42,0.35)" }}>
+            <div className="w-full rounded-3xl p-5 shadow-2xl" style={{ background: "#FEF3C7", border: "1.5px solid #F59E0B" }}>
+              <div className="flex items-start gap-3">
+                <Icon path={ICONS.alert} size={22} style={{ color: "#D97706" }} />
+                <div className="flex-1">
+                  <div className="text-base font-bold" style={{ color: "#92400E" }}>You are about to arrive</div>
+                  <div className="text-sm mt-1" style={{ color: "#B45309" }}>{destStop.name} is nearby.</div>
+                </div>
+                <button onClick={() => setArrivalAlert(false)} className="text-xs font-bold" style={{ color: "#92400E" }}>Dismiss</button>
               </div>
-              <button onClick={() => setArrivalAlert(false)} className="text-xs font-bold" style={{ color: "#92400E" }}>Dismiss</button>
             </div>
           </div>
         )}
@@ -1906,7 +1890,7 @@ export default function App() {
   }, [gps.position, journeyNotification, journeyAlert]);
 
   useEffect(() => {
-    if (tab === "track" && !gps.position && !gps.error) {
+    if ((tab === "search" || tab === "track") && !gps.position && !gps.error) {
       setGpsPrompt(true);
     }
   }, [tab, gps.position, gps.error]);
