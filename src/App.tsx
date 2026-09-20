@@ -470,6 +470,92 @@ function MapFocusStop({ stopId, active, focusNonce = 0 }: { stopId?: string; act
   return null;
 }
 
+function applyMapBearing(map: L.Map, rotation: number) {
+  const pane = map.getPane("mapPane");
+  if (!pane) return;
+  const size = map.getSize();
+  const panePos = L.DomUtil.getPosition(pane) ?? L.point(0, 0);
+  const radians = (rotation * Math.PI) / 180;
+  pane.style.transformOrigin = `${size.x / 2 - panePos.x}px ${size.y / 2 - panePos.y}px`;
+  pane.style.rotate = `${rotation}deg`;
+  pane.style.scale = String(Math.abs(Math.sin(radians)) + Math.abs(Math.cos(radians)));
+}
+
+function rotateDragOffset(dx: number, dy: number, rotation: number) {
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return L.point(dx * cos - dy * sin, dx * sin + dy * cos);
+}
+
+function MapBearing({ rotation }: { rotation: number }) {
+  const map = useMap();
+  const rotationRef = useRef(rotation);
+  rotationRef.current = rotation;
+
+  useEffect(() => {
+    const apply = () => applyMapBearing(map, rotation);
+    apply();
+    map.on("move zoom viewreset", apply);
+    return () => {
+      map.off("move zoom viewreset", apply);
+      const pane = map.getPane("mapPane");
+      if (!pane) return;
+      pane.style.rotate = "";
+      pane.style.scale = "";
+      pane.style.transformOrigin = "";
+    };
+  }, [map, rotation]);
+
+  useEffect(() => {
+    const container = map.getContainer();
+    const pointers = new Map<number, { x: number; y: number }>();
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 && event.pointerType === "mouse") return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const previous = pointers.get(event.pointerId);
+      if (!previous) return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (rotationRef.current === 0 || pointers.size !== 1) return;
+
+      const offset = rotateDragOffset(
+        event.clientX - previous.x,
+        event.clientY - previous.y,
+        rotationRef.current,
+      );
+      map.panBy([-offset.x, -offset.y], { animate: false, noMoveStart: true });
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      pointers.delete(event.pointerId);
+    };
+
+    if (rotation) {
+      map.dragging.disable();
+    } else {
+      map.dragging.enable();
+    }
+
+    container.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      container.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      map.dragging.enable();
+    };
+  }, [map, rotation]);
+
+  return null;
+}
+
 function MapTouchRotate({
   enabled = false,
   rotation,
@@ -656,8 +742,6 @@ function CampusMap({
       className="relative w-full overflow-hidden"
       style={{
         height,
-        transform: rotation ? `rotate(${rotation}deg)` : undefined,
-        transformOrigin: "center center",
         touchAction: enableTouchRotate ? "none" : undefined,
       }}
     >
@@ -670,6 +754,7 @@ function CampusMap({
       >
         <ZoomControl position="bottomright" />
         <MapSizeSync />
+        <MapBearing rotation={rotation} />
         <MapTouchRotate enabled={enableTouchRotate} rotation={rotation} onRotationChange={onRotationChange} />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -903,7 +988,6 @@ function RoutesPage() {
                       ))}
                     </div>
                   </div>
-                  <Icon path={ICONS.chevronRight} size={16} className="opacity-30" />
                 </div>
               </button>
             );
@@ -1668,7 +1752,7 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
   useEffect(() => {
     if (!tripStarted || !userSvg || !destStop) return;
     const distance = getDistance(userSvg[0], userSvg[1], destStop.lat, destStop.lng);
-    if (distance <= 150 && arrivalAlertStop.current !== destStop.id) {
+    if (distance <= 50 && arrivalAlertStop.current !== destStop.id) {
       arrivalAlertStop.current = destStop.id;
       setStopAlert({
         title: "You are about to arrive",
@@ -1863,8 +1947,8 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
                 highlightPath={highlightPath}
                 guidancePoints={guidancePoints ?? undefined}
                 focusUser={tripStarted}
-                highlightStopId={nearestStop?.id}
-                focusStopId={destStop?.id ?? startStop?.id ?? undefined}
+                highlightStopId={startStop?.id}
+                focusStopId={startStop?.id ?? destStop?.id ?? undefined}
                 height={tripStarted ? 520 : 240}
                 rotation={mapRotation}
                 userHeading={userHeading ?? 0}
@@ -2077,7 +2161,7 @@ export default function App() {
       journeyNotification.destination.lat,
       journeyNotification.destination.lng,
     );
-    if (distance <= 150 && !journeyAlert) {
+    if (distance <= 50 && !journeyAlert) {
       setJourneyAlert(true);
       playArrivalTone();
       if ("Notification" in window && Notification.permission === "granted") {
