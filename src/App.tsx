@@ -78,7 +78,7 @@ const ROUTES: Route[] = [
     id: "1",
     label: "1",
     description: "Main Campus",
-    color: "#7C2D9C",
+    color: "#DB2777",
     operatingDays: "Mon – Sat (Suspended on Sunday & Public Holidays)",
     serviceHours: "07:40 – 18:55",
     frequency: "Every 10, 25, 40, 55 minutes",
@@ -191,7 +191,7 @@ const ROUTES: Route[] = [
     id: "H",
     label: "H",
     description: "Holiday Route",
-    color: "#7C3AED",
+    color: "#4D7C0F",
     operatingDays: "Sun & Public Holidays",
     serviceHours: "08:20 – 23:20",
     frequency: "Every 00, 20, 40 minutes",
@@ -475,14 +475,15 @@ function applyMapBearing(map: L.Map, rotation: number) {
   if (!pane) return;
   const size = map.getSize();
   const panePos = L.DomUtil.getPosition(pane) ?? L.point(0, 0);
-  const radians = (rotation * Math.PI) / 180;
   pane.style.transformOrigin = `${size.x / 2 - panePos.x}px ${size.y / 2 - panePos.y}px`;
   pane.style.rotate = `${rotation}deg`;
-  pane.style.scale = String(Math.abs(Math.sin(radians)) + Math.abs(Math.cos(radians)));
+  pane.style.scale = "";
 }
 
-function rotateDragOffset(dx: number, dy: number, rotation: number) {
-  const radians = (rotation * Math.PI) / 180;
+// Screen-space drag deltas have to be un-rotated before they can be handed to
+// panBy, which works in the map's own unrotated pixel space.
+function screenDeltaToMapDelta(dx: number, dy: number, rotation: number) {
+  const radians = (-rotation * Math.PI) / 180;
   const cos = Math.cos(radians);
   const sin = Math.sin(radians);
   return L.point(dx * cos - dy * sin, dx * sin + dy * cos);
@@ -522,7 +523,7 @@ function MapBearing({ rotation }: { rotation: number }) {
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (rotationRef.current === 0 || pointers.size !== 1) return;
 
-      const offset = rotateDragOffset(
+      const offset = screenDeltaToMapDelta(
         event.clientX - previous.x,
         event.clientY - previous.y,
         rotationRef.current,
@@ -1957,7 +1958,11 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
               />
               <div className="absolute right-2 top-2 z-[500] flex gap-1">
                 <button
-                  onClick={() => setMapRotation((value) => value - 15)}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMapRotation((value) => value - 15);
+                  }}
                   className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
                   style={{ color: "var(--purple)" }}
                   aria-label="Rotate left"
@@ -1965,7 +1970,11 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
                   ↺
                 </button>
                 <button
-                  onClick={() => setMapRotation((value) => value + 15)}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setMapRotation((value) => value + 15);
+                  }}
                   className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
                   style={{ color: "var(--purple)" }}
                   aria-label="Rotate right"
