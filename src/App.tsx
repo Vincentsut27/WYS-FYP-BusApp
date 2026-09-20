@@ -375,20 +375,74 @@ const ROAD_PATH_CACHE: Record<string, [number, number][]> = {};
 
 async function fetchRoadPath(points: [number, number][]) {
   if (points.length < 2) return points;
-  const coordinates = points.map(([lat, lng]) => `${lng},${lat}`).join(";");
-  const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`);
-  if (!response.ok) return points;
-  const data = await response.json();
-  const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
-  if (!Array.isArray(routeCoordinates)) return points;
-  return routeCoordinates.map(([lng, lat]: [number, number]) => [lat, lng] as [number, number]);
+
+  const segments = await Promise.all(
+    points.slice(0, -1).map(async (start, index) => {
+      const end = points[index + 1];
+      const coordinates = `${start[1]},${start[0]};${end[1]},${end[0]}`;
+      const response = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
+      if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) return null;
+      return routeCoordinates.map(([lng, lat]: [number, number]) => [lat, lng] as [number, number]);
+    })
+  );
+
+  if (segments.some((segment) => !segment)) return points;
+
+  const merged: [number, number][] = [];
+  segments.forEach((segment, index) => {
+    merged.push(...(index === 0 ? segment! : segment!.slice(1)));
+  });
+  return merged;
 }
 
-function MapViewport({ points }: { points: [number, number][] }) {
+function pathDistance2(a: [number, number], b: [number, number]) {
+  const dLat = a[0] - b[0];
+  const dLng = a[1] - b[1];
+  return dLat * dLat + dLng * dLng;
+}
+
+function nearestPathIndex(path: [number, number][], point: [number, number], fromIndex = 0) {
+  let bestIndex = fromIndex;
+  let bestDistance = Infinity;
+  for (let i = fromIndex; i < path.length; i++) {
+    const distance = pathDistance2(path[i], point);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+function sliceRoadPath(roadPath: [number, number][], waypoints: [number, number][]) {
+  if (roadPath.length < 2 || waypoints.length < 2) return null;
+
+  let searchFrom = 0;
+  const indices = waypoints.map((waypoint) => {
+    const index = nearestPathIndex(roadPath, waypoint, searchFrom);
+    searchFrom = index;
+    return index;
+  });
+
+  const startIndex = indices[0];
+  const endIndex = indices[indices.length - 1];
+  if (endIndex <= startIndex) return null;
+
+  const sliced = roadPath.slice(startIndex, endIndex + 1);
+  return sliced.length >= 2 ? sliced : null;
+}
+
+function MapViewport({ points, locked = false }: { points: [number, number][]; locked?: boolean }) {
   const map = useMap();
   const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join(";");
 
   useEffect(() => {
+    if (locked) return;
     if (points.length === 1) {
       map.setView(points[0], Math.max(map.getZoom(), 17), { animate: true });
       return;
@@ -396,20 +450,80 @@ function MapViewport({ points }: { points: [number, number][] }) {
     if (points.length > 1) {
       map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
     }
-  }, [map, pointsKey]);
+  }, [locked, map, pointsKey]);
 
   return null;
 }
 
-function MapFocusStop({ stopId, active }: { stopId?: string; active: boolean }) {
+function MapFocusStop({ stopId, active, focusNonce = 0 }: { stopId?: string; active: boolean; focusNonce?: number }) {
   const map = useMap();
 
   useEffect(() => {
     if (!active || !stopId) return;
     const stop = STOPS[stopId];
     if (!stop) return;
-    map.setView([stop.lat, stop.lng], Math.max(map.getZoom(), 17), { animate: true });
-  }, [active, map, stopId]);
+    map.stop();
+    map.invalidateSize({ animate: false });
+    map.setView([stop.lat, stop.lng], 17, { animate: false });
+  }, [active, focusNonce, map, stopId]);
+
+  return null;
+}
+
+function MapTouchRotate({
+  enabled = false,
+  rotation,
+  onRotationChange,
+}: {
+  enabled?: boolean;
+  rotation: number;
+  onRotationChange?: (next: number) => void;
+}) {
+  const map = useMap();
+  const rotationRef = useRef(rotation);
+  const lastAngleRef = useRef<number | null>(null);
+  rotationRef.current = rotation;
+
+  useEffect(() => {
+    if (!enabled || !onRotationChange) return;
+    const container = map.getContainer();
+
+    const touchAngle = (touches: TouchList) => {
+      const first = touches.item(0);
+      const second = touches.item(1);
+      if (!first || !second) return 0;
+      return Math.atan2(second.clientY - first.clientY, second.clientX - first.clientX) * (180 / Math.PI);
+    };
+
+    const onStart = (event: TouchEvent) => {
+      lastAngleRef.current = event.touches.length === 2 ? touchAngle(event.touches) : null;
+    };
+
+    const onMove = (event: TouchEvent) => {
+      if (event.touches.length !== 2 || lastAngleRef.current == null) return;
+      const nextAngle = touchAngle(event.touches);
+      let delta = nextAngle - lastAngleRef.current;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      lastAngleRef.current = nextAngle;
+      onRotationChange(rotationRef.current + delta);
+    };
+
+    const onEnd = (event: TouchEvent) => {
+      if (event.touches.length < 2) lastAngleRef.current = null;
+    };
+
+    container.addEventListener("touchstart", onStart, { passive: true });
+    container.addEventListener("touchmove", onMove, { passive: true });
+    container.addEventListener("touchend", onEnd);
+    container.addEventListener("touchcancel", onEnd);
+    return () => {
+      container.removeEventListener("touchstart", onStart);
+      container.removeEventListener("touchmove", onMove);
+      container.removeEventListener("touchend", onEnd);
+      container.removeEventListener("touchcancel", onEnd);
+    };
+  }, [enabled, map, onRotationChange]);
 
   return null;
 }
@@ -455,6 +569,9 @@ function CampusMap({
   rotation = 0,
   userHeading = 0,
   guidancePoints,
+  focusNonce = 0,
+  enableTouchRotate = false,
+  onRotationChange,
 }: {
   routeId?: string;
   highlightStopId?: string;
@@ -469,6 +586,9 @@ function CampusMap({
   height?: number;
   rotation?: number;
   userHeading?: number;
+  focusNonce?: number;
+  enableTouchRotate?: boolean;
+  onRotationChange?: (next: number) => void;
 }) {
   const route = routeId ? ROUTES.find((r) => r.id === routeId) : null;
   const routeStops = route ? route.stopIds.map((id) => STOPS[id]).filter(Boolean) : [];
@@ -509,26 +629,38 @@ function CampusMap({
       setHighlightRoadPath(null);
       return;
     }
-    if (highlightPath.length <= 2) {
-      setHighlightRoadPath(highlightPath);
+
+    const slicedPath = roadPath ? sliceRoadPath(roadPath, highlightPath) : null;
+    if (slicedPath && slicedPath.length > highlightPath.length) {
+      setHighlightRoadPath(slicedPath);
       return;
     }
-    const controller = new AbortController();
-    const coordinates = highlightPath.map(([lat, lng]) => `${lng},${lat}`).join(";");
-    fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`, { signal: controller.signal })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Routing request failed")))
-      .then((data) => {
-        const coordinates = data.routes?.[0]?.geometry?.coordinates;
-        setHighlightRoadPath(Array.isArray(coordinates) ? coordinates.map(([lng, lat]: [number, number]) => [lat, lng]) : highlightPath);
+
+    let active = true;
+    fetchRoadPath(highlightPath)
+      .then((nextPath) => {
+        if (!active) return;
+        setHighlightRoadPath(nextPath.length > 1 ? nextPath : null);
       })
-      .catch(() => setHighlightRoadPath(highlightPath));
-    return () => controller.abort();
-  }, [highlightPath]);
+      .catch(() => {
+        if (active) setHighlightRoadPath(slicedPath);
+      });
+
+    return () => { active = false; };
+  }, [highlightPath, roadPath]);
 
   const renderedPath = roadPath ?? routePath;
 
   return (
-    <div className="relative w-full overflow-hidden" style={{ height, transform: `rotate(${rotation}deg)`, transformOrigin: "center center" }}>
+    <div
+      className="relative w-full overflow-hidden"
+      style={{
+        height,
+        transform: rotation ? `rotate(${rotation}deg)` : undefined,
+        transformOrigin: "center center",
+        touchAction: enableTouchRotate ? "none" : undefined,
+      }}
+    >
       <MapContainer
         center={CAMPUS_CENTER}
         zoom={15}
@@ -538,18 +670,22 @@ function CampusMap({
       >
         <ZoomControl position="bottomright" />
         <MapSizeSync />
+        <MapTouchRotate enabled={enableTouchRotate} rotation={rotation} onRotationChange={onRotationChange} />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <MapViewport points={renderedPath.length > 1 ? renderedPath : displayStops.map((stop) => [stop.lat, stop.lng])} />
-        <MapFocusStop stopId={focusStopId} active={Boolean(focusStopId)} />
+        <MapViewport
+          points={renderedPath.length > 1 ? renderedPath : displayStops.map((stop) => [stop.lat, stop.lng])}
+          locked={Boolean(focusStopId)}
+        />
+        <MapFocusStop stopId={focusStopId} active={Boolean(focusStopId)} focusNonce={focusNonce} />
         <UserMapFocus position={userPos} active={focusUser} />
         {route && roadPath && roadPath.length > 1 && (
           <Polyline positions={roadPath} pathOptions={{ color: routeColor, weight: 5, opacity: 0.9 }} />
         )}
-        {highlightPath && highlightPath.length > 1 && (
-          <Polyline positions={highlightRoadPath ?? highlightPath} pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 8, opacity: 0.95 }} />
+        {highlightRoadPath && highlightRoadPath.length > 1 && (
+          <Polyline positions={highlightRoadPath} pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 8, opacity: 0.95 }} />
         )}
         {guidancePoints && guidancePoints.length > 1 && guidancePoints.map((point, index) => (
           <CircleMarker
@@ -585,7 +721,7 @@ function CampusMap({
             icon={L.divIcon({
               className: "user-direction-marker",
               html: `
-                <svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;">
+                <svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading - rotation}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;">
                   <polygon points="32,4 56,46 40,46 40,60 24,60 24,46 8,46" fill="#2563EB" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linejoin="round" />
                 </svg>
               `,
@@ -654,6 +790,12 @@ function RoutesPage() {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [highlightStop, setHighlightStop] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState(0);
+
+  const selectStop = (stopId: string) => {
+    setHighlightStop(stopId);
+    setFocusNonce((value) => value + 1);
+  };
 
   if (selectedRoute) {
     const stops = selectedRoute.stopIds.map((id) => STOPS[id]).filter(Boolean);
@@ -694,8 +836,9 @@ function RoutesPage() {
             routeId={selectedRoute.id}
             highlightStopId={highlightStop ?? undefined}
             focusStopId={highlightStop ?? undefined}
+            focusNonce={focusNonce}
             height={220}
-            onStopClick={(s) => setHighlightStop(s.id === highlightStop ? null : s.id)}
+            onStopClick={(s) => selectStop(s.id)}
           />
           <div className="absolute bottom-2 left-2 text-[9px] text-gray-400 bg-white/70 px-1.5 py-0.5 rounded">
             Tap stop to highlight
@@ -711,45 +854,57 @@ function RoutesPage() {
           </div>
           {stops.map((stop, idx) => {
             const isHighlighted = stop.id === highlightStop;
+            const isLast = idx === stops.length - 1;
             return (
               <button
-                key={stop.id}
-                onClick={() => setHighlightStop(stop.id === highlightStop ? null : stop.id)}
-                className="w-full flex items-center gap-4 px-4 py-3 border-b transition-colors text-left"
+                key={`${stop.id}-${idx}`}
+                onClick={() => selectStop(stop.id)}
+                className="w-full flex items-stretch gap-4 px-4 text-left transition-colors"
                 style={{
-                  borderColor: "var(--border)",
                   background: isHighlighted ? "var(--purple-pale)" : "white",
                 }}
               >
                 {/* Timeline */}
-                <div className="flex flex-col items-center" style={{ width: 24, minHeight: 40 }}>
+                <div className="flex w-6 flex-shrink-0 flex-col items-center self-stretch">
                   <div
-                    className="w-3 h-3 rounded-full border-2 flex-shrink-0"
+                    className="w-0.5 flex-shrink-0"
+                    style={{
+                      height: 14,
+                      background: idx === 0 ? "transparent" : isHighlighted ? selectedRoute.color : "#D8D8E4",
+                    }}
+                  />
+                  <div
+                    className="relative z-10 w-3 h-3 rounded-full border-2 flex-shrink-0"
                     style={{
                       borderColor: isHighlighted ? selectedRoute.color : "#C8C8D8",
                       background: isHighlighted ? selectedRoute.color : "white",
                     }}
                   />
-                  {idx < stops.length - 1 && (
-                    <div className="w-0.5 flex-1 mt-1" style={{ background: isHighlighted ? selectedRoute.color : "#DDD" }} />
+                  {!isLast && (
+                    <div
+                      className="w-0.5 flex-1"
+                      style={{ background: isHighlighted ? selectedRoute.color : "#D8D8E4" }}
+                    />
                   )}
                 </div>
-                <div className="flex-1">
-                  <span
-                    className="text-sm font-medium"
-                    style={{ color: isHighlighted ? selectedRoute.color : "var(--text)" }}
-                  >
-                    {idx + 1}. {stop.name}
-                  </span>
-                  <div className="flex gap-2 mt-0.5">
-                    {getArrivals(stop.id).slice(0, 2).map((t, i) => (
-                      <span key={i} className="text-xs font-semibold" style={{ color: selectedRoute.color }}>
-                        {t} min
-                      </span>
-                    ))}
+                <div className="flex-1 flex items-center gap-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+                  <div className="flex-1">
+                    <span
+                      className="text-sm font-medium"
+                      style={{ color: isHighlighted ? selectedRoute.color : "var(--text)" }}
+                    >
+                      {idx + 1}. {stop.name}
+                    </span>
+                    <div className="flex gap-2 mt-0.5">
+                      {getArrivals(stop.id).slice(0, 2).map((t, i) => (
+                        <span key={i} className="text-xs font-semibold" style={{ color: selectedRoute.color }}>
+                          {t} min
+                        </span>
+                      ))}
+                    </div>
                   </div>
+                  <Icon path={ICONS.chevronRight} size={16} className="opacity-30" />
                 </div>
-                <Icon path={ICONS.chevronRight} size={16} className="opacity-30" />
               </button>
             );
           })}
@@ -801,13 +956,6 @@ function RoutesPage() {
                     </div>
                   ))}
                 </div>
-                <button
-                  className="w-full py-3 rounded-2xl text-sm font-semibold text-white flex items-center justify-center gap-2"
-                  style={{ background: selectedRoute.color }}
-                >
-                  <Icon path={ICONS.map} size={16} />
-                  View Holiday & Teaching Calendar
-                </button>
               </div>
             </div>
           </div>
@@ -1439,9 +1587,11 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
   const [showDestPicker, setShowDestPicker] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [stopsAway, setStopsAway] = useState<number | null>(null);
-  const [arrivalAlert, setArrivalAlert] = useState(false);
+  const [stopAlert, setStopAlert] = useState<{ title: string; body: string } | null>(null);
   const [tripStarted, setTripStarted] = useState(false);
+  const [mapRotation, setMapRotation] = useState(0);
   const arrivalAlertStop = useRef<string | null>(null);
+  const approachingAlertStop = useRef<string | null>(null);
   const simRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const userPos = gpsPosition;
 
@@ -1483,6 +1633,13 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
     }
   }, [trackingPos, routeStops, destStop, startStop, startStopManuallySet]);
 
+  useEffect(() => {
+    if (trackingPos || !startStop || !destStop || routeStops.length === 0) return;
+    const ni = routeStops.findIndex((s) => s.id === startStop.id);
+    const di = routeStops.findIndex((s) => s.id === destStop.id);
+    setStopsAway(di > ni ? di - ni : null);
+  }, [trackingPos, startStop, destStop, routeStops]);
+
   const highlightPath = useMemo<[number, number][]>(() => {
     if (!routeStops.length || !startStop || !destStop) return [];
 
@@ -1509,22 +1666,48 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
   }, [userSvg, startStop]);
 
   useEffect(() => {
-    if (!userSvg || !destStop) return;
+    if (!tripStarted || !userSvg || !destStop) return;
     const distance = getDistance(userSvg[0], userSvg[1], destStop.lat, destStop.lng);
     if (distance <= 150 && arrivalAlertStop.current !== destStop.id) {
       arrivalAlertStop.current = destStop.id;
-      setArrivalAlert(true);
+      setStopAlert({
+        title: "You are about to arrive",
+        body: `${destStop.name} is nearby. Get ready to alight.`,
+      });
       playArrivalTone();
       if ("Notification" in window && Notification.permission === "granted") {
         new Notification("You are nearly there", { body: `${destStop.name} is about ${distance}m away.` });
       }
     }
-  }, [userSvg, destStop]);
+  }, [tripStarted, userSvg, destStop]);
+
+  useEffect(() => {
+    if (!tripStarted || !destStop || stopsAway !== 1) return;
+    if (approachingAlertStop.current === destStop.id) return;
+    approachingAlertStop.current = destStop.id;
+    setStopAlert({
+      title: "Approaching your stop!",
+      body: `${destStop.name} is the next stop. Get ready!`,
+    });
+    playArrivalTone();
+  }, [tripStarted, destStop, stopsAway]);
 
   useEffect(() => {
     arrivalAlertStop.current = null;
-    setArrivalAlert(false);
+    approachingAlertStop.current = null;
+    setStopAlert(null);
   }, [destStop?.id]);
+
+  useEffect(() => {
+    setMapRotation(0);
+  }, [selectedRoute?.id]);
+
+  useEffect(() => {
+    if (tripStarted) return;
+    approachingAlertStop.current = null;
+    arrivalAlertStop.current = null;
+    setStopAlert(null);
+  }, [tripStarted]);
 
   useEffect(() => () => {
     if (simRef.current !== null) clearInterval(simRef.current);
@@ -1544,9 +1727,6 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
       }, 2000);
     }
   }
-
-  // Stops away alert
-  const approaching = stopsAway === 1;
 
   if (showRoutePicker) {
     return (
@@ -1655,7 +1835,7 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
   }
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "var(--bg)" }}>
+    <div className="relative flex flex-col h-full overflow-hidden" style={{ background: "var(--bg)" }}>
       {/* Header */}
       <div className="px-4 pt-5 pb-3 bg-white border-b" style={{ borderColor: "var(--border)" }}>
         <div className="flex items-center justify-between mb-1">
@@ -1672,32 +1852,6 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
       </div>
 
       <div className="flex-1 scrollable">
-        {arrivalAlert && destStop && (
-          <div className="absolute inset-0 z-[90] flex items-center justify-center p-5" style={{ background: "rgba(15,23,42,0.40)" }}>
-            <div className="w-full max-w-xs rounded-3xl p-5 shadow-2xl" style={{ background: "#FEF3C7", border: "1.5px solid #F59E0B" }}>
-              <div className="flex items-start gap-3">
-                <Icon path={ICONS.alert} size={22} style={{ color: "#D97706" }} />
-                <div className="flex-1">
-                  <div className="text-base font-bold" style={{ color: "#92400E" }}>You are about to arrive</div>
-                  <div className="text-sm mt-1" style={{ color: "#B45309" }}>{destStop.name} is nearby.</div>
-                </div>
-                <button onClick={() => setArrivalAlert(false)} className="text-xs font-bold" style={{ color: "#92400E" }}>Dismiss</button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Approaching alert */}
-        {approaching && destStop && (
-          <div className="mx-3 mt-3 p-3.5 rounded-2xl flex items-start gap-3 fade-in"
-            style={{ background: "#FEF3C7", border: "1.5px solid #F59E0B" }}>
-            <Icon path={ICONS.alert} size={20} className="flex-shrink-0 mt-0.5" style={{ color: "#D97706" }} />
-            <div>
-              <div className="text-sm font-bold" style={{ color: "#92400E" }}>Approaching your stop!</div>
-              <div className="text-xs mt-0.5" style={{ color: "#B45309" }}>{destStop.name} is the next stop. Get ready!</div>
-            </div>
-          </div>
-        )}
-
         {/* Map */}
         <div className="mx-3 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
           {selectedRoute ? (
@@ -1712,16 +1866,14 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
                 highlightStopId={nearestStop?.id}
                 focusStopId={destStop?.id ?? startStop?.id ?? undefined}
                 height={tripStarted ? 520 : 240}
-                rotation={0}
+                rotation={mapRotation}
                 userHeading={userHeading ?? 0}
+                enableTouchRotate
+                onRotationChange={setMapRotation}
               />
               <div className="absolute right-2 top-2 z-[500] flex gap-1">
                 <button
-                  onClick={() => {
-                    const next = -15;
-                    const mapRoot = document.querySelector(".leaflet-container") as HTMLElement | null;
-                    if (mapRoot) mapRoot.style.transform = `rotate(${next}deg)`;
-                  }}
+                  onClick={() => setMapRotation((value) => value - 15)}
                   className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
                   style={{ color: "var(--purple)" }}
                   aria-label="Rotate left"
@@ -1729,11 +1881,7 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
                   ↺
                 </button>
                 <button
-                  onClick={() => {
-                    const next = 15;
-                    const mapRoot = document.querySelector(".leaflet-container") as HTMLElement | null;
-                    if (mapRoot) mapRoot.style.transform = `rotate(${next}deg)`;
-                  }}
+                  onClick={() => setMapRotation((value) => value + 15)}
                   className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
                   style={{ color: "var(--purple)" }}
                   aria-label="Rotate right"
@@ -1858,6 +2006,25 @@ function TrackPage({ gpsPosition, gpsError, onRequestGps, userHeading }: { gpsPo
 
         <div className="h-8" />
       </div>
+
+      {stopAlert && (
+        <div className="absolute inset-0 z-[2000] flex items-center justify-center p-5" style={{ background: "rgba(15,23,42,0.45)" }}>
+          <div className="w-full max-w-xs rounded-3xl bg-white p-5 shadow-2xl">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full" style={{ background: "#FEF3C7" }}>
+              <Icon path={ICONS.alert} size={24} style={{ color: "#D97706" }} />
+            </div>
+            <div className="text-center text-lg font-bold" style={{ color: "var(--text)" }}>{stopAlert.title}</div>
+            <div className="mt-2 text-center text-sm" style={{ color: "var(--muted)" }}>{stopAlert.body}</div>
+            <button
+              onClick={() => setStopAlert(null)}
+              className="mt-5 w-full rounded-2xl py-3 text-sm font-semibold text-white"
+              style={{ background: "var(--purple)" }}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
