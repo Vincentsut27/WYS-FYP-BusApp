@@ -1,0 +1,10 @@
+{
+  "description": "Navigate university bus routes effortlessly with real-time GPS tracking, ensuring you never miss a stop while visualizing bus stations and routes.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
