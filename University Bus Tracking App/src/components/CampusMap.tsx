@@ -227,7 +227,7 @@ function UserMapFocus({ position, active }: { position?: [number, number] | null
 export function CampusMap({
   routeId, highlightStopId, focusStopId, userPos, highlightPath, focusUser = false,
   showAllStops = false, onStopClick, height = 240, rotation = 0, userHeading = 0,
-  guidancePoints, focusNonce = 0, enableTouchRotate = false, onRotationChange,
+  guidancePoints, focusNonce = 0, enableTouchRotate = false, onRotationChange, dimRoute = false,
 }: {
   routeId?: string;
   highlightStopId?: string;
@@ -244,6 +244,7 @@ export function CampusMap({
   focusNonce?: number;
   enableTouchRotate?: boolean;
   onRotationChange?: (next: number) => void;
+  dimRoute?: boolean;
 }) {
   const route = routeId ? ROUTES.find((candidate) => candidate.id === routeId) : null;
   const routeStops = route ? route.stopIds.map((id) => STOPS[id]).filter(Boolean) : [];
@@ -309,7 +310,7 @@ export function CampusMap({
         <MapViewport points={renderedPath.length > 1 ? renderedPath : displayStops.map((stop) => [stop.lat, stop.lng])} locked={Boolean(focusStopId)} />
         <MapFocusStop stopId={focusStopId} active={Boolean(focusStopId)} focusNonce={focusNonce} />
         <UserMapFocus position={userPos} active={focusUser} />
-        {route && roadPath && roadPath.length > 1 && <Polyline positions={roadPath} pathOptions={{ color: routeColor, weight: 5, opacity: 0.9 }} />}
+        {route && roadPath && roadPath.length > 1 && <Polyline positions={roadPath} pathOptions={{ color: routeColor, weight: 5, opacity: dimRoute ? 0.25 : 0.9 }} />}
         {highlightRoadPath && highlightRoadPath.length > 1 && <Polyline positions={highlightRoadPath} pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 8, opacity: 0.95 }} />}
         {guidancePoints && guidancePoints.length > 1 && guidancePoints.map((point, index) => (
           <CircleMarker key={`guidance-${index}`} center={point} radius={3.25} pathOptions={{ color: "#7C3AED", weight: 1, fillColor: "#7C3AED", fillOpacity: 0.9 }} />

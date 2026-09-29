@@ -214,7 +214,7 @@ export function TrackPage({ gpsPosition, gpsError, userHeading }: { gpsPosition:
                 userPos={userPosition}
                 highlightPath={highlightPath}
                 guidancePoints={guidancePoints ?? undefined}
-                focusUser={tripStarted}
+                dimRoute={tripStarted}
                 highlightStopId={startStop?.id}
                 focusStopId={startStop?.id ?? destStop?.id ?? undefined}
                 height={tripStarted ? 520 : 240}
