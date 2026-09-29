@@ -36,6 +36,7 @@ export function TrackPage({
   const [mapRotation, setMapRotation] = useState(0);
   const arrivalAlertStop = useRef<string | null>(null);
   const approachingAlertStop = useRef<string | null>(null);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
   const routeStops = selectedRoute
     ? selectedRoute.stopIds.map((id) => STOPS[id]).filter(Boolean)
     : [];
@@ -44,6 +45,11 @@ export function TrackPage({
     : null;
   const trackingPosition = userPosition;
 
+  const endTrip = () => {
+    setTripStarted(false);
+    setTripStopIndex(null);
+    contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
   useEffect(() => {
     if (!trackingPosition || routeStops.length === 0) {
       setNearestStop(null);
@@ -475,9 +481,18 @@ export function TrackPage({
         <p className="text-xs" style={{ color: "var(--muted)" }}>
           Select a route and track your position — get alerted before your stop.
         </p>
+        {tripStarted && (
+          <button
+            onClick={endTrip}
+            className="mt-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+            style={{ background: "#DC2626" }}
+          >
+            Change trip
+          </button>
+        )}
       </div>
 
-      <div className="flex-1 scrollable">
+      <div ref={contentScrollRef} className="flex-1 min-h-0 scrollable">
         <div className="mx-3 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
           {selectedRoute ? (
             <div className="relative">
@@ -717,8 +732,7 @@ export function TrackPage({
             <button
               onClick={() => {
                 if (tripStarted) {
-                  setTripStarted(false);
-                  setTripStopIndex(null);
+                  endTrip();
                 } else {
                   setTripStopIndex(startIndex >= 0 ? startIndex : 0);
                   setTripStarted(true);
