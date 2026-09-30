@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-function getHeadingFromMovement(previous: { lat: number; lng: number } | null, current: GeolocationPosition) {
-  if (current.coords.heading != null && !Number.isNaN(current.coords.heading)) return current.coords.heading;
+function getHeadingFromMovement(
+  previous: { lat: number; lng: number } | null,
+  current: GeolocationPosition,
+) {
+  if (current.coords.heading != null && !Number.isNaN(current.coords.heading))
+    return current.coords.heading;
   if (!previous) return 0;
   const lat1 = (previous.lat * Math.PI) / 180;
   const lat2 = (current.coords.latitude * Math.PI) / 180;
@@ -9,7 +13,9 @@ function getHeadingFromMovement(previous: { lat: number; lng: number } | null, c
   const lng2 = (current.coords.longitude * Math.PI) / 180;
   const dLng = lng2 - lng1;
   const x = Math.sin(dLng) * Math.cos(lat2);
-  const y = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  const y =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
   const angle = (Math.atan2(x, y) * 180) / Math.PI;
   return (angle + 360) % 360;
 }
@@ -20,30 +26,69 @@ export function useGpsLocation() {
   const [heading, setHeading] = useState<number>(0);
   const watchRef = useRef<number | null>(null);
   const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
-  const orientationListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
+  const orientationListenerRef = useRef<
+    ((event: DeviceOrientationEvent) => void) | null
+  >(null);
 
-  const start = useCallback(async () => {
-    if (!navigator.geolocation) {
-      setError("This browser does not support GPS.");
+  const start = useCallback(() => {
+    if (!window.isSecureContext) {
+      setError("Location access requires a secure connection (HTTPS).");
       return;
     }
-    if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
+    if (!navigator.geolocation) {
+      setError("Location access is unavailable in this browser.");
+      return;
+    }
+    if (watchRef.current !== null)
+      navigator.geolocation.clearWatch(watchRef.current);
     setError(null);
 
-    if (window.DeviceOrientationEvent) {
-      const permApi = DeviceOrientationEvent as typeof DeviceOrientationEvent & { requestPermission?: () => Promise<"granted" | "denied"> };
-      const hasPermissionApi = typeof permApi.requestPermission === "function";
-      if (hasPermissionApi) {
-        const permissionStatus = await permApi.requestPermission?.();
-        if (permissionStatus && permissionStatus !== "granted") {
-          setError("Motion access is unavailable on this device.");
-        }
-      }
+    watchRef.current = navigator.geolocation.watchPosition(
+      (nextPosition) => {
+        setPosition(nextPosition);
+        setHeading((existingHeading) => {
+          const gpsHeading = getHeadingFromMovement(
+            previousPositionRef.current,
+            nextPosition,
+          );
+          return gpsHeading !== 0 || existingHeading !== 0
+            ? gpsHeading
+            : existingHeading;
+        });
+        previousPositionRef.current = {
+          lat: nextPosition.coords.latitude,
+          lng: nextPosition.coords.longitude,
+        };
+        setError(null);
+      },
+      (geoError) => {
+        setError(
+          geoError.code === 1
+            ? "Location access was denied. Allow location for this site in Firefox's site settings."
+            : "Unable to get your current location.",
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
+    );
 
-      if (orientationListenerRef.current) window.removeEventListener("deviceorientation", orientationListenerRef.current);
+    if (window.DeviceOrientationEvent) {
+      const permApi =
+        DeviceOrientationEvent as typeof DeviceOrientationEvent & {
+          requestPermission?: () => Promise<"granted" | "denied">;
+        };
+      if (orientationListenerRef.current)
+        window.removeEventListener(
+          "deviceorientation",
+          orientationListenerRef.current,
+        );
       orientationListenerRef.current = (event: DeviceOrientationEvent) => {
-        const orientationEvent = event as DeviceOrientationEvent & { webkitCompassHeading?: number };
-        const alpha = typeof orientationEvent.webkitCompassHeading === "number" ? orientationEvent.webkitCompassHeading : event.alpha;
+        const orientationEvent = event as DeviceOrientationEvent & {
+          webkitCompassHeading?: number;
+        };
+        const alpha =
+          typeof orientationEvent.webkitCompassHeading === "number"
+            ? orientationEvent.webkitCompassHeading
+            : event.alpha;
         if (typeof alpha === "number" && !Number.isNaN(alpha)) {
           setHeading(alpha % 360);
           return;
@@ -53,30 +98,37 @@ export function useGpsLocation() {
         const angle = (Math.atan2(gamma, beta) * 180) / Math.PI + 90;
         setHeading((angle + 360) % 360);
       };
-      window.addEventListener("deviceorientation", orientationListenerRef.current);
+
+      const requestOrientation = async () => {
+        try {
+          if (typeof permApi.requestPermission === "function") {
+            const permissionStatus = await permApi.requestPermission();
+            if (permissionStatus !== "granted") return;
+          }
+          window.addEventListener(
+            "deviceorientation",
+            orientationListenerRef.current!,
+          );
+        } catch {
+          // Motion is optional; location tracking remains active.
+        }
+      };
+      void requestOrientation();
     }
-
-    watchRef.current = navigator.geolocation.watchPosition(
-      (nextPosition) => {
-        setPosition(nextPosition);
-        setHeading((existingHeading) => {
-          const gpsHeading = getHeadingFromMovement(previousPositionRef.current, nextPosition);
-          return gpsHeading !== 0 || existingHeading !== 0 ? gpsHeading : existingHeading;
-        });
-        previousPositionRef.current = { lat: nextPosition.coords.latitude, lng: nextPosition.coords.longitude };
-        setError(null);
-      },
-      (geoError) => {
-        setError(geoError.code === 1 ? "Location access was denied." : "Unable to get your current location.");
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
-    );
   }, []);
 
-  useEffect(() => () => {
-    if (watchRef.current !== null) navigator.geolocation.clearWatch(watchRef.current);
-    if (orientationListenerRef.current) window.removeEventListener("deviceorientation", orientationListenerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (watchRef.current !== null)
+        navigator.geolocation.clearWatch(watchRef.current);
+      if (orientationListenerRef.current)
+        window.removeEventListener(
+          "deviceorientation",
+          orientationListenerRef.current,
+        );
+    },
+    [],
+  );
 
   return { position, error, heading, start };
 }

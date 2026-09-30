@@ -493,7 +493,7 @@ export function SearchPage({
           permission === "granted"
             ? `Reminder set for about ${arrivalMinutes} min from now.`
             : permission === "unsupported"
-              ? `In-app reminder set for about ${arrivalMinutes} min. Browser notifications are unavailable here.`
+              ? `In-app reminder set for about ${arrivalMinutes} min. ${window.isSecureContext ? "Browser notifications are unavailable here." : "Browser notifications require a secure HTTPS connection."}`
               : permission === "denied"
                 ? `In-app reminder set for about ${arrivalMinutes} min. Allow notifications for this site in browser settings to receive browser alerts.`
                 : `In-app reminder set for about ${arrivalMinutes} min. Browser permission is still pending.`;

@@ -41,7 +41,7 @@ export default function App() {
   const requestGps = useCallback(() => setGpsPrompt(true), []);
   const notifyJourney = useCallback(async (journey: JourneyNotification) => {
     let permission: NotificationPermission | "unsupported" = "unsupported";
-    if ("Notification" in window) {
+    if (window.isSecureContext && "Notification" in window) {
       permission = Notification.permission;
       if (permission === "default") {
         try {
@@ -89,10 +89,6 @@ export default function App() {
       setGpsPrompt(true);
     }
   }, [tab, gps.position, gps.error, trackerOnly]);
-
-  useEffect(() => {
-    if (tab === "arrival" || tab === "search") void gps.start();
-  }, [tab, gps.start]);
 
   return (
     <div

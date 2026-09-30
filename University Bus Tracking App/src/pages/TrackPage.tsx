@@ -83,6 +83,12 @@ export function TrackPage({
   };
   const requestArrivalNotifications = async () => {
     setNotificationPermissionMessage(null);
+    if (!window.isSecureContext) {
+      setNotificationPermissionMessage(
+        "Notifications require a secure HTTPS connection.",
+      );
+      return;
+    }
     if (!("Notification" in window)) {
       setNotificationPermissionMessage(
         "Browser notifications are unavailable on this device.",
