@@ -94,13 +94,18 @@ function sliceRoadPath(
 
 function MapViewport({
   points,
+  rotation,
   locked = false,
 }: {
   points: [number, number][];
+  rotation: number;
   locked?: boolean;
 }) {
   const map = useMap();
   const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join(";");
+  const rotationBaseZoomRef = useRef<number | null>(null);
+  const previousRotationRef = useRef(rotation);
+  const routePointsKeyRef = useRef(pointsKey);
   useEffect(() => {
     if (locked) return;
     if (points.length === 1) {
@@ -110,6 +115,70 @@ function MapViewport({
     if (points.length > 1)
       map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
   }, [locked, map, pointsKey]);
+
+  useEffect(() => {
+    const normalizedRotation = ((rotation % 360) + 360) % 360;
+    const previousRotation = ((previousRotationRef.current % 360) + 360) % 360;
+    const routeChanged = routePointsKeyRef.current !== pointsKey;
+    routePointsKeyRef.current = pointsKey;
+
+    if (normalizedRotation === 0) {
+      if (
+        previousRotation !== 0 &&
+        !routeChanged &&
+        rotationBaseZoomRef.current !== null
+      ) {
+        map.setZoom(rotationBaseZoomRef.current, { animate: false });
+      }
+      rotationBaseZoomRef.current = null;
+      previousRotationRef.current = rotation;
+      return;
+    }
+
+    if (
+      previousRotation === 0 ||
+      routeChanged ||
+      rotationBaseZoomRef.current === null
+    ) {
+      rotationBaseZoomRef.current = map.getZoom();
+    }
+    previousRotationRef.current = rotation;
+
+    if (points.length < 2) return;
+    const size = map.getSize();
+    const center = L.point(size.x / 2, size.y / 2);
+    const radians = (normalizedRotation * Math.PI) / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const mapPaneScale = getMapPaneScale(size, normalizedRotation);
+    const rotatedPoints = points.map((point) => {
+      const screenPoint = map.latLngToContainerPoint(point).subtract(center);
+      return L.point(
+        (screenPoint.x * cos - screenPoint.y * sin) * mapPaneScale,
+        (screenPoint.x * sin + screenPoint.y * cos) * mapPaneScale,
+      );
+    });
+    const horizontalExtent =
+      Math.max(...rotatedPoints.map((point) => point.x)) -
+      Math.min(...rotatedPoints.map((point) => point.x));
+    const verticalExtent =
+      Math.max(...rotatedPoints.map((point) => point.y)) -
+      Math.min(...rotatedPoints.map((point) => point.y));
+    const availableWidth = Math.max(1, size.x - 48);
+    const availableHeight = Math.max(1, size.y - 48);
+    const zoomScale = Math.min(
+      availableWidth / Math.max(1, horizontalExtent),
+      availableHeight / Math.max(1, verticalExtent),
+    );
+    const adjustedZoom = Math.min(
+      rotationBaseZoomRef.current,
+      map.getZoom() + Math.log2(zoomScale),
+    );
+    const targetZoom = Math.floor(adjustedZoom * 4) / 4;
+    if (Math.abs(targetZoom - map.getZoom()) >= 0.25) {
+      map.setZoom(targetZoom, { animate: false });
+    }
+  }, [map, pointsKey, rotation]);
   return null;
 }
 
@@ -134,18 +203,19 @@ function MapFocusStop({
   return null;
 }
 
+function getMapPaneScale(size: L.Point, rotation: number) {
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  return Math.max(cos + (size.y / size.x) * sin, cos + (size.x / size.y) * sin);
+}
+
 function applyMapBearing(map: L.Map, rotation: number) {
   const pane = map.getPane("mapPane");
   if (!pane) return;
   const size = map.getSize();
   const panePos = L.DomUtil.getPosition(pane) ?? L.point(0, 0);
-  const radians = (rotation * Math.PI) / 180;
-  const cos = Math.abs(Math.cos(radians));
-  const sin = Math.abs(Math.sin(radians));
-  const scale = Math.max(
-    cos + (size.y / size.x) * sin,
-    cos + (size.x / size.y) * sin,
-  );
+  const scale = getMapPaneScale(size, rotation);
   pane.style.transformOrigin = `${size.x / 2 - panePos.x}px ${size.y / 2 - panePos.y}px`;
   pane.style.rotate = `${rotation}deg`;
   pane.style.scale = `${scale}`;
@@ -400,6 +470,7 @@ export function CampusMap({
       <MapContainer
         center={CAMPUS_CENTER}
         zoom={15}
+        zoomSnap={0.25}
         scrollWheelZoom={false}
         zoomControl={false}
         className="h-full w-full"
@@ -422,6 +493,7 @@ export function CampusMap({
               ? renderedPath
               : displayStops.map((stop) => [stop.lat, stop.lng])
           }
+          rotation={rotation}
           locked={Boolean(focusStopId)}
         />
         <MapFocusStop
