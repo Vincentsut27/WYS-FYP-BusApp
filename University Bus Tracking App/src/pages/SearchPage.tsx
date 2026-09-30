@@ -221,6 +221,7 @@ export function SearchPage({
                 const trip = getSearchRouteTrip(route, from!, to!)!;
                 const stopsCount = trip.count;
                 const averageTime = stopsCount * 4 + 2;
+                const arrivalMinutes = getArrivals(from!.id + route.id)[0];
                 return (
                   <div
                     key={route.id}
@@ -258,7 +259,7 @@ export function SearchPage({
                           className="text-lg font-extrabold"
                           style={{ color: route.color }}
                         >
-                          {getArrivals(from!.id + route.id)[0]}
+                          {arrivalMinutes}
                         </div>
                         <div
                           className="text-[10px]"
@@ -321,7 +322,8 @@ export function SearchPage({
                           event.stopPropagation();
                           onNotify({
                             route,
-                            destination: STOPS[to!.searchIds[0]],
+                            origin: STOPS[from!.searchIds[0]],
+                            arrivalMinutes,
                           });
                         }}
                         className="px-2.5 py-1 rounded-full text-[10px] font-bold"

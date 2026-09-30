@@ -46,12 +46,15 @@ export function TrackPage({
     body: string;
   } | null>(null);
   const [tripStarted, setTripStarted] = useState(false);
+  const [arrivalNotificationsEnabled, setArrivalNotificationsEnabled] =
+    useState(false);
+  const [notificationPermissionMessage, setNotificationPermissionMessage] =
+    useState<string | null>(null);
   const [tripStopIndex, setTripStopIndex] = useState<number | null>(null);
   const [tripStartStopIndex, setTripStartStopIndex] = useState<number | null>(
     null,
   );
   const [mapRotation, setMapRotation] = useState(0);
-  const arrivalAlertStop = useRef<string | null>(null);
   const approachingAlertStop = useRef<string | null>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const routeStops = selectedRoute
@@ -77,6 +80,34 @@ export function TrackPage({
     setTripStopIndex(null);
     setTripStartStopIndex(null);
     contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const requestArrivalNotifications = async () => {
+    setNotificationPermissionMessage(null);
+    if (!("Notification" in window)) {
+      setNotificationPermissionMessage(
+        "Browser notifications are unavailable on this device.",
+      );
+      return;
+    }
+    try {
+      const permission =
+        Notification.permission === "granted"
+          ? "granted"
+          : await Notification.requestPermission();
+      if (permission === "granted") {
+        setArrivalNotificationsEnabled(true);
+      } else {
+        setArrivalNotificationsEnabled(false);
+        setNotificationPermissionMessage(
+          "Notification permission was not granted.",
+        );
+      }
+    } catch {
+      setArrivalNotificationsEnabled(false);
+      setNotificationPermissionMessage(
+        "Unable to request notification permission.",
+      );
+    }
   };
   useEffect(() => {
     if (!trackingPosition || routeStops.length === 0) {
@@ -222,68 +253,63 @@ export function TrackPage({
   const destinationRouteIndex =
     destStopRouteIndex ??
     (destStop ? routeStops.findIndex((stop) => stop.id === destStop.id) : -1);
-  const destinationProgressMeters =
-    destinationRouteIndex > 0
-      ? routeGeometry?.segments[destinationRouteIndex - 1]?.endDistanceMeters
-      : undefined;
-  const destinationOccurrenceIsNear =
-    destinationProgressMeters !== undefined &&
-    tripProgress.progressMeters !== null &&
-    tripProgress.progressMeters >= destinationProgressMeters - 80;
   const destinationAlertKey = destStop
     ? `${destStop.id}:${destinationRouteIndex}`
     : null;
+  const journeySegmentCount =
+    tripStartStopIndex !== null
+      ? destinationRouteIndex - tripStartStopIndex
+      : 0;
+  const midpointSegmentPosition =
+    tripStartStopIndex !== null
+      ? tripStartStopIndex + journeySegmentCount / 2
+      : -1;
+  const midpointSegmentIndex = Math.floor(midpointSegmentPosition);
+  const midpointSegmentFraction =
+    midpointSegmentPosition - midpointSegmentIndex;
+  const midpointSegment = routeGeometry?.segments[midpointSegmentIndex];
+  const midpointProgressMeters =
+    journeySegmentCount > 0 && midpointSegment
+      ? midpointSegment.startDistanceMeters +
+        midpointSegment.lengthMeters * midpointSegmentFraction
+      : null;
 
   useEffect(() => {
     if (
       !tripStarted ||
-      !userPosition ||
+      !arrivalNotificationsEnabled ||
       !destStop ||
-      !destinationOccurrenceIsNear
+      !destinationAlertKey ||
+      midpointProgressMeters === null ||
+      tripProgress.progressMeters === null ||
+      tripProgress.progressMeters < midpointProgressMeters ||
+      approachingAlertStop.current === destinationAlertKey
     )
       return;
-    const distance = getDistance(
-      userPosition[0],
-      userPosition[1],
-      destStop.lat,
-      destStop.lng,
-    );
-    if (distance <= 50 && arrivalAlertStop.current !== destinationAlertKey) {
-      arrivalAlertStop.current = destinationAlertKey;
-      setStopAlert({
-        title: "You are about to arrive",
-        body: `${destStop.name} is nearby. Get ready to alight.`,
-      });
-      playArrivalTone();
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("You are nearly there", {
-          body: `${destStop.name} is about ${distance}m away.`,
-        });
-      }
+    approachingAlertStop.current = destinationAlertKey;
+    const notification = {
+      title: "Approaching your stop",
+      body: `You are about halfway to ${destStop.name}.`,
+    };
+    setStopAlert(notification);
+    playArrivalTone();
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(notification.title, { body: notification.body });
     }
   }, [
     tripStarted,
-    userPosition,
+    arrivalNotificationsEnabled,
     destStop,
     destinationAlertKey,
-    destinationOccurrenceIsNear,
+    midpointProgressMeters,
+    tripProgress.progressMeters,
   ]);
 
   useEffect(() => {
-    if (!tripStarted || !destStop || stopsAway !== 1) return;
-    if (approachingAlertStop.current === destinationAlertKey) return;
-    approachingAlertStop.current = destinationAlertKey;
-    setStopAlert({
-      title: "Approaching your stop!",
-      body: `${destStop.name} is the next stop. Get ready!`,
-    });
-    playArrivalTone();
-  }, [tripStarted, destStop, destinationAlertKey, stopsAway]);
-
-  useEffect(() => {
-    arrivalAlertStop.current = null;
     approachingAlertStop.current = null;
     setStopAlert(null);
+    setArrivalNotificationsEnabled(false);
+    setNotificationPermissionMessage(null);
   }, [destStop?.id, destStopRouteIndex]);
 
   useEffect(() => {
@@ -316,7 +342,6 @@ export function TrackPage({
   useEffect(() => {
     if (tripStarted) return;
     approachingAlertStop.current = null;
-    arrivalAlertStop.current = null;
     setStopAlert(null);
   }, [tripStarted]);
 
@@ -835,6 +860,45 @@ export function TrackPage({
                   className="opacity-30"
                 />
               </button>
+              {destStop && (
+                <div className="px-4 pb-3">
+                  <button
+                    onClick={() => {
+                      if (arrivalNotificationsEnabled) {
+                        setArrivalNotificationsEnabled(false);
+                        setNotificationPermissionMessage(null);
+                      } else {
+                        void requestArrivalNotifications();
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold"
+                    style={{
+                      borderColor: arrivalNotificationsEnabled
+                        ? "#86EFAC"
+                        : "var(--border)",
+                      background: arrivalNotificationsEnabled
+                        ? "#F0FDF4"
+                        : "white",
+                      color: arrivalNotificationsEnabled
+                        ? "#15803D"
+                        : "var(--text)",
+                    }}
+                  >
+                    <Icon path={ICONS.alert} size={16} />
+                    {arrivalNotificationsEnabled
+                      ? "Arrival notification enabled"
+                      : "Notify me halfway to my stop"}
+                  </button>
+                  {notificationPermissionMessage && (
+                    <div
+                      className="mt-2 text-center text-xs"
+                      style={{ color: "#B91C1C" }}
+                    >
+                      {notificationPermissionMessage}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BottomNav, type TabId } from "./components/BottomNav";
 import { GpsPermissionModal } from "./components/GpsPermissionModal";
 import { Icon, ICONS } from "./components/Icon";
@@ -7,7 +7,7 @@ import { ArrivalPage } from "./pages/ArrivalPage";
 import { RoutesPage } from "./pages/RoutesPage";
 import { SearchPage } from "./pages/SearchPage";
 import { TrackPage } from "./pages/TrackPage";
-import { getDistance, playArrivalTone } from "./lib/transit";
+import { playArrivalTone } from "./lib/transit";
 import type { JourneyNotification, Route, SearchStop } from "./types/transit";
 
 export default function App() {
@@ -16,6 +16,7 @@ export default function App() {
   const [journeyNotification, setJourneyNotification] =
     useState<JourneyNotification | null>(null);
   const [journeyAlert, setJourneyAlert] = useState(false);
+  const journeyTimerRef = useRef<number | null>(null);
   const [trackPreset, setTrackPreset] = useState<{
     routeId: string;
     startStopId: string;
@@ -38,37 +39,34 @@ export default function App() {
   };
 
   const requestGps = useCallback(() => setGpsPrompt(true), []);
-  const notifyJourney = useCallback(
-    async (journey: JourneyNotification) => {
-      setJourneyNotification(journey);
-      setJourneyAlert(false);
-      if ("Notification" in window && Notification.permission === "default") {
-        await Notification.requestPermission();
-      }
-      if (!gps.position) requestGps();
-      else void gps.start();
-    },
-    [gps.position, gps.start, requestGps],
-  );
-
-  useEffect(() => {
-    if (!gps.position || !journeyNotification) return;
-    const distance = getDistance(
-      gps.position.coords.latitude,
-      gps.position.coords.longitude,
-      journeyNotification.destination.lat,
-      journeyNotification.destination.lng,
-    );
-    if (distance <= 50 && !journeyAlert) {
+  const notifyJourney = useCallback((journey: JourneyNotification) => {
+    if (journeyTimerRef.current !== null) {
+      window.clearTimeout(journeyTimerRef.current);
+    }
+    setJourneyNotification(journey);
+    setJourneyAlert(false);
+    if ("Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission().catch(() => undefined);
+    }
+    journeyTimerRef.current = window.setTimeout(() => {
+      journeyTimerRef.current = null;
       setJourneyAlert(true);
       playArrivalTone();
       if ("Notification" in window && Notification.permission === "granted") {
-        new Notification("You are nearly there", {
-          body: `${journeyNotification.destination.name} is about ${distance}m away.`,
+        new Notification("Bus arriving", {
+          body: `Route ${journey.route.label} is arriving at ${journey.origin.name}. Head to the stop.`,
         });
       }
-    }
-  }, [gps.position, journeyNotification, journeyAlert]);
+    }, journey.arrivalMinutes * 60_000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (journeyTimerRef.current !== null) {
+        window.clearTimeout(journeyTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (
@@ -171,14 +169,18 @@ export default function App() {
                   className="text-base font-bold"
                   style={{ color: "#92400E" }}
                 >
-                  You are about to arrive
+                  Bus arriving
                 </div>
                 <div className="text-sm mt-1" style={{ color: "#B45309" }}>
-                  {journeyNotification.destination.name} is nearby.
+                  Route {journeyNotification.route.label} is arriving at{" "}
+                  {journeyNotification.origin.name}.
                 </div>
               </div>
               <button
-                onClick={() => setJourneyAlert(false)}
+                onClick={() => {
+                  setJourneyAlert(false);
+                  setJourneyNotification(null);
+                }}
                 className="text-xs font-bold"
                 style={{ color: "#92400E" }}
               >

@@ -19,4 +19,8 @@ export interface Route {
 }
 
 export type SearchStop = Stop & { searchIds: string[] };
-export type JourneyNotification = { route: Route; destination: Stop };
+export type JourneyNotification = {
+  route: Route;
+  origin: Stop;
+  arrivalMinutes: number;
+};
