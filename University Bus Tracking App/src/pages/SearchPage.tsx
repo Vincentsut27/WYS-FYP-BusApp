@@ -9,14 +9,16 @@ import {
   isRouteOperatingNow,
   SEARCH_STOPS,
 } from "../lib/transit";
-import type { JourneyNotification, SearchStop } from "../types/transit";
+import type { JourneyNotification, Route, SearchStop } from "../types/transit";
 
 export function SearchPage({
   onNotify,
+  onTrackRoute,
   gpsPosition,
   onRequestGps,
 }: {
   onNotify: (journey: JourneyNotification) => void;
+  onTrackRoute: (route: Route, from: SearchStop, to: SearchStop) => void;
   gpsPosition: GeolocationPosition | null;
   onRequestGps: () => void;
 }) {
@@ -300,15 +302,20 @@ export function SearchPage({
                         );
                       })}
                     </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <span
-                        className="text-[10px] font-semibold"
-                        style={{ color: route.color }}
+                    <div className="flex items-center justify-between gap-2 mt-3">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onTrackRoute(route, from!, to!);
+                        }}
+                        className="flex-1 px-2.5 py-1.5 rounded-full text-[10px] font-bold text-left"
+                        style={{
+                          color: route.color,
+                          background: `${route.color}18`,
+                        }}
                       >
-                        {expandedRouteId === route.id
-                          ? "Hide complete route"
-                          : "View complete route"}
-                      </span>
+                        Track route · {route.label} · {from!.name} → {to!.name}
+                      </button>
                       <button
                         onClick={(event) => {
                           event.stopPropagation();

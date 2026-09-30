@@ -15,10 +15,16 @@ export function TrackPage({
   gpsPosition,
   gpsError,
   userHeading,
+  presetRouteId,
+  presetStartStopId,
+  presetDestStopId,
 }: {
   gpsPosition: GeolocationPosition | null;
   gpsError: string | null;
   userHeading?: number | null;
+  presetRouteId?: string;
+  presetStartStopId?: string;
+  presetDestStopId?: string;
 }) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [destStop, setDestStop] = useState<Stop | null>(null);
@@ -279,6 +285,31 @@ export function TrackPage({
     approachingAlertStop.current = null;
     setStopAlert(null);
   }, [destStop?.id, destStopRouteIndex]);
+
+  useEffect(() => {
+    if (!presetRouteId) return;
+    const presetRoute = ROUTES.find((route) => route.id === presetRouteId);
+    if (!presetRoute) return;
+
+    const startId = presetStartStopId ?? presetRoute.stopIds[0];
+    const endId =
+      presetDestStopId ?? presetRoute.stopIds[presetRoute.stopIds.length - 1];
+    const startIndex = presetRoute.stopIds.indexOf(startId);
+    const endIndex = presetRoute.stopIds.indexOf(endId);
+
+    setSelectedRoute(presetRoute);
+    setStartStop(STOPS[startId] ?? null);
+    setStartStopRouteIndex(startIndex >= 0 ? startIndex : null);
+    setStartStopManuallySet(true);
+    setDestStop(endIndex >= 0 ? (STOPS[endId] ?? null) : null);
+    setDestStopRouteIndex(endIndex >= 0 ? endIndex : null);
+    setTripStarted(false);
+    setTripStopIndex(null);
+    setTripStartStopIndex(null);
+    setShowRoutePicker(false);
+    setShowDestPicker(false);
+    setShowStartPicker(false);
+  }, [presetRouteId, presetStartStopId, presetDestStopId]);
 
   useEffect(() => setMapRotation(0), [selectedRoute?.id]);
 
@@ -564,43 +595,32 @@ export function TrackPage({
         <p className="text-xs" style={{ color: "var(--muted)" }}>
           Select a route and track your position — get alerted before your stop.
         </p>
-        {tripStarted && (
-          <button
-            onClick={endTrip}
-            className="mt-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
-            style={{ background: "#DC2626" }}
-          >
-            Change trip
-          </button>
-        )}
       </div>
 
       <div ref={contentScrollRef} className="flex-1 min-h-0 tracker-scrollable">
-        {selectedRoute && (
-          <div className="sticky top-0 z-[600] flex justify-end gap-1 px-3 py-2 pointer-events-none">
-            <button
-              type="button"
-              onClick={() => setMapRotation((value) => value - 15)}
-              className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
-              style={{ color: "var(--purple)" }}
-              aria-label="Rotate left"
-            >
-              ↺
-            </button>
-            <button
-              type="button"
-              onClick={() => setMapRotation((value) => value + 15)}
-              className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
-              style={{ color: "var(--purple)" }}
-              aria-label="Rotate right"
-            >
-              ↻
-            </button>
-          </div>
-        )}
-        <div className="ml-3 mr-8 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
+        <div className="relative ml-4 mr-4 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
           {selectedRoute ? (
             <div className="relative">
+              <div className="absolute bottom-3 left-3 z-[600] flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setMapRotation((value) => value - 15)}
+                  className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
+                  style={{ color: "var(--purple)" }}
+                  aria-label="Rotate left"
+                >
+                  ↺
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMapRotation((value) => value + 15)}
+                  className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
+                  style={{ color: "var(--purple)" }}
+                  aria-label="Rotate right"
+                >
+                  ↻
+                </button>
+              </div>
               <CampusMap
                 routeId={selectedRoute.id}
                 userPos={userPosition}
@@ -615,7 +635,7 @@ export function TrackPage({
                 tripStartStopIndex={tripStartStopIndex ?? 0}
                 highlightStopId={activeStop?.id}
                 focusStopId={activeStop?.id ?? destStop?.id ?? undefined}
-                height={tripStarted ? "clamp(260px, 42svh, 380px)" : 240}
+                height={tripStarted ? "clamp(300px, 48svh, 430px)" : 300}
                 rotation={mapRotation}
                 userHeading={userHeading ?? 0}
                 enableTouchRotate
@@ -827,7 +847,7 @@ export function TrackPage({
               style={{ background: tripStarted ? "#DC2626" : "var(--navy)" }}
             >
               <Icon path={tripStarted ? ICONS.stop : ICONS.play} size={16} />
-              {tripStarted ? "End Trip" : "Start Trip"}
+              {tripStarted ? "Change Trip / End Trip" : "Start Trip"}
             </button>
           )}
         </div>
