@@ -17,7 +17,9 @@ export function SearchPage({
   gpsPosition,
   onRequestGps,
 }: {
-  onNotify: (journey: JourneyNotification) => void;
+  onNotify: (
+    journey: JourneyNotification,
+  ) => Promise<NotificationPermission | "unsupported">;
   onTrackRoute: (route: Route, from: SearchStop, to: SearchStop) => void;
   gpsPosition: GeolocationPosition | null;
   onRequestGps: () => void;
@@ -30,6 +32,10 @@ export function SearchPage({
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
   const [searchedAt, setSearchedAt] = useState<Date | null>(null);
   const [hasDirectRoute, setHasDirectRoute] = useState<boolean | null>(null);
+  const [notificationFeedback, setNotificationFeedback] = useState<{
+    routeId: string;
+    message: string;
+  } | null>(null);
   const userPosition: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
@@ -180,7 +186,6 @@ export function SearchPage({
           Search Routes
         </button>
       </div>
-
       <div className="flex-1 scrollable">
         {results !== null && (
           <div className="p-4 space-y-3">
@@ -404,7 +409,6 @@ export function SearchPage({
           </div>
         )}
       </div>
-
       {selecting && (
         <div
           className="absolute inset-0 z-50 flex flex-col"
@@ -477,6 +481,24 @@ export function SearchPage({
           </div>
         </div>
       )}
+      onClick=
+      {async (event) => {
+        event.stopPropagation();
+        const permission = await onNotify({
+          route,
+          origin: STOPS[from!.searchIds[0]],
+          arrivalMinutes,
+        });
+        const message =
+          permission === "granted"
+            ? `Reminder set for about ${arrivalMinutes} min from now.`
+            : permission === "unsupported"
+              ? `In-app reminder set for about ${arrivalMinutes} min. Browser notifications are unavailable here.`
+              : permission === "denied"
+                ? `In-app reminder set for about ${arrivalMinutes} min. Allow notifications for this site in browser settings to receive browser alerts.`
+                : `In-app reminder set for about ${arrivalMinutes} min. Browser permission is still pending.`;
+        setNotificationFeedback({ routeId: route.id, message });
+      }}
     </div>
   );
 }

@@ -89,6 +89,13 @@ export function TrackPage({
       );
       return;
     }
+    if (Notification.permission === "denied") {
+      setArrivalNotificationsEnabled(false);
+      setNotificationPermissionMessage(
+        "Notifications are blocked for this site. Enable them in browser site settings, then try again.",
+      );
+      return;
+    }
     try {
       const permission =
         Notification.permission === "granted"
@@ -99,7 +106,9 @@ export function TrackPage({
       } else {
         setArrivalNotificationsEnabled(false);
         setNotificationPermissionMessage(
-          "Notification permission was not granted.",
+          permission === "denied"
+            ? "Notifications are blocked for this site. Enable them in browser site settings, then try again."
+            : "No permission was selected. Tap again to request notifications.",
         );
       }
     } catch {

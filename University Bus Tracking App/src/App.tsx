@@ -39,15 +39,23 @@ export default function App() {
   };
 
   const requestGps = useCallback(() => setGpsPrompt(true), []);
-  const notifyJourney = useCallback((journey: JourneyNotification) => {
+  const notifyJourney = useCallback(async (journey: JourneyNotification) => {
+    let permission: NotificationPermission | "unsupported" = "unsupported";
+    if ("Notification" in window) {
+      permission = Notification.permission;
+      if (permission === "default") {
+        try {
+          permission = await Notification.requestPermission();
+        } catch {
+          permission = "denied";
+        }
+      }
+    }
     if (journeyTimerRef.current !== null) {
       window.clearTimeout(journeyTimerRef.current);
     }
     setJourneyNotification(journey);
     setJourneyAlert(false);
-    if ("Notification" in window && Notification.permission === "default") {
-      void Notification.requestPermission().catch(() => undefined);
-    }
     journeyTimerRef.current = window.setTimeout(() => {
       journeyTimerRef.current = null;
       setJourneyAlert(true);
@@ -58,6 +66,7 @@ export default function App() {
         });
       }
     }, journey.arrivalMinutes * 60_000);
+    return permission;
   }, []);
 
   useEffect(() => {
