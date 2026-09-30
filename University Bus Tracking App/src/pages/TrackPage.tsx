@@ -569,18 +569,18 @@ export function TrackPage({
       style={{ background: "var(--bg)" }}
     >
       <div
-        className="px-4 pt-5 pb-3 bg-white border-b"
+        className="px-4 pt-3 pb-2 bg-white border-b"
         style={{ borderColor: "var(--border)" }}
       >
         <div className="flex items-center justify-between mb-1">
           <h1
-            className="text-xl font-extrabold"
+            className="text-[1.05rem] font-extrabold leading-none"
             style={{ color: "var(--text)" }}
           >
             Live Tracker
           </h1>
           <div
-            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
             style={{
               background: trackingPosition ? "#DCFCE7" : "var(--purple-pale)",
               color: trackingPosition ? "#16A34A" : "var(--purple)",
@@ -592,7 +592,7 @@ export function TrackPage({
             {trackingPosition ? "Tracking" : "Not tracking"}
           </div>
         </div>
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
+        <p className="text-[10px]" style={{ color: "var(--muted)" }}>
           Select a route and track your position — get alerted before your stop.
         </p>
       </div>
@@ -654,6 +654,72 @@ export function TrackPage({
             </div>
           )}
         </div>
+
+        {selectedRoute && (
+          <div className="mx-3 mt-3 bg-white rounded-2xl shadow-sm p-3">
+            <div
+              className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+              style={{ color: "var(--muted)" }}
+            >
+              Current Status
+            </div>
+            <div className="flex gap-2 mb-2">
+              <div
+                className="flex-1 rounded-xl p-2.5"
+                style={{ background: "var(--purple-pale)" }}
+              >
+                <div
+                  className="text-[10px] mb-1"
+                  style={{ color: "var(--muted)" }}
+                >
+                  Current Stop
+                </div>
+                <div
+                  className="text-xs font-bold"
+                  style={{ color: "var(--purple)" }}
+                >
+                  {activeStop
+                    ? getCanonicalStopName(activeStop.shortName)
+                    : "—"}
+                </div>
+              </div>
+              {destStop && (
+                <div
+                  className="flex-1 rounded-xl p-2.5"
+                  style={{ background: "#FEF3C7" }}
+                >
+                  <div
+                    className="text-[10px] mb-1"
+                    style={{ color: "#92400E" }}
+                  >
+                    Stops to Dest.
+                  </div>
+                  <div
+                    className="text-xs font-bold"
+                    style={{ color: "#D97706" }}
+                  >
+                    {stopsAway !== null ? stopsAway : "—"}
+                  </div>
+                </div>
+              )}
+            </div>
+            {tripStarted && (
+              <div
+                className="rounded-xl p-2.5"
+                style={{ background: "#EFF6FF" }}
+              >
+                <div className="text-[10px] mb-1" style={{ color: "#1D4ED8" }}>
+                  Next Stop
+                </div>
+                <div className="text-xs font-bold" style={{ color: "#1D4ED8" }}>
+                  {nextStop
+                    ? getCanonicalStopName(nextStop.shortName)
+                    : "End of route"}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mx-3 mt-3 bg-white rounded-2xl shadow-sm overflow-hidden">
           <button
@@ -772,63 +838,6 @@ export function TrackPage({
             </>
           )}
         </div>
-
-        {selectedRoute && (
-          <div className="mx-3 mt-3 bg-white rounded-2xl shadow-sm p-4">
-            <div
-              className="text-xs font-semibold uppercase tracking-widest mb-3"
-              style={{ color: "var(--muted)" }}
-            >
-              Current Status
-            </div>
-            <div className="flex gap-3 mb-3">
-              <div
-                className="flex-1 rounded-xl p-3"
-                style={{ background: "var(--purple-pale)" }}
-              >
-                <div className="text-xs mb-1" style={{ color: "var(--muted)" }}>
-                  Current Stop
-                </div>
-                <div
-                  className="text-sm font-bold"
-                  style={{ color: "var(--purple)" }}
-                >
-                  {activeStop
-                    ? getCanonicalStopName(activeStop.shortName)
-                    : "—"}
-                </div>
-              </div>
-              {destStop && (
-                <div
-                  className="flex-1 rounded-xl p-3"
-                  style={{ background: "#FEF3C7" }}
-                >
-                  <div className="text-xs mb-1" style={{ color: "#92400E" }}>
-                    Stops to Dest.
-                  </div>
-                  <div
-                    className="text-sm font-bold"
-                    style={{ color: "#D97706" }}
-                  >
-                    {stopsAway !== null ? stopsAway : "—"}
-                  </div>
-                </div>
-              )}
-            </div>
-            {tripStarted && (
-              <div className="rounded-xl p-3" style={{ background: "#EFF6FF" }}>
-                <div className="text-xs mb-1" style={{ color: "#1D4ED8" }}>
-                  Next Stop
-                </div>
-                <div className="text-sm font-bold" style={{ color: "#1D4ED8" }}>
-                  {nextStop
-                    ? getCanonicalStopName(nextStop.shortName)
-                    : "End of route"}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         <div className="mx-3 mt-3">
           {selectedRoute && (
