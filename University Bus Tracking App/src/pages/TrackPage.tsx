@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
+import { useRouteGeometry } from "../hooks/useRouteGeometry";
+import { useTripProgress } from "../hooks/useTripProgress";
 import {
   getCanonicalStopName,
   getDistance,
@@ -20,7 +22,13 @@ export function TrackPage({
 }) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [destStop, setDestStop] = useState<Stop | null>(null);
+  const [destStopRouteIndex, setDestStopRouteIndex] = useState<number | null>(
+    null,
+  );
   const [startStop, setStartStop] = useState<Stop | null>(null);
+  const [startStopRouteIndex, setStartStopRouteIndex] = useState<number | null>(
+    null,
+  );
   const [startStopManuallySet, setStartStopManuallySet] = useState(false);
   const [nearestStop, setNearestStop] = useState<Stop | null>(null);
   const [showRoutePicker, setShowRoutePicker] = useState(false);
@@ -33,6 +41,9 @@ export function TrackPage({
   } | null>(null);
   const [tripStarted, setTripStarted] = useState(false);
   const [tripStopIndex, setTripStopIndex] = useState<number | null>(null);
+  const [tripStartStopIndex, setTripStartStopIndex] = useState<number | null>(
+    null,
+  );
   const [mapRotation, setMapRotation] = useState(0);
   const arrivalAlertStop = useRef<string | null>(null);
   const approachingAlertStop = useRef<string | null>(null);
@@ -40,14 +51,25 @@ export function TrackPage({
   const routeStops = selectedRoute
     ? selectedRoute.stopIds.map((id) => STOPS[id]).filter(Boolean)
     : [];
+  const routePoints = routeStops.map(
+    (stop) => [stop.lat, stop.lng] as [number, number],
+  );
+  const routeGeometry = useRouteGeometry(selectedRoute?.id, routePoints);
   const userPosition: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
   const trackingPosition = userPosition;
+  const tripProgress = useTripProgress(
+    routeGeometry,
+    gpsPosition,
+    tripStarted,
+    tripStartStopIndex,
+  );
 
   const endTrip = () => {
     setTripStarted(false);
     setTripStopIndex(null);
+    setTripStartStopIndex(null);
     contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
   useEffect(() => {
@@ -56,8 +78,9 @@ export function TrackPage({
       return;
     }
     let nearest = routeStops[0];
+    let nearestRouteIndex = 0;
     let minimumDistance = Infinity;
-    routeStops.forEach((stop) => {
+    routeStops.forEach((stop, index) => {
       const distance = getDistance(
         trackingPosition[0],
         trackingPosition[1],
@@ -67,20 +90,22 @@ export function TrackPage({
       if (distance < minimumDistance) {
         minimumDistance = distance;
         nearest = stop;
+        nearestRouteIndex = index;
       }
     });
     setNearestStop(nearest);
-    if (!startStopManuallySet && !tripStarted) setStartStop(nearest);
+    if (!startStopManuallySet && !tripStarted) {
+      setStartStop(nearest);
+      setStartStopRouteIndex(nearestRouteIndex);
+    }
     if (destStop) {
       const nearestIndex =
         tripStarted && tripStopIndex !== null
           ? tripStopIndex
-          : routeStops.findIndex(
-              (stop) => stop.id === (startStop?.id ?? nearest.id),
-            );
-      const destinationIndex = routeStops.findIndex(
-        (stop) => stop.id === destStop.id,
-      );
+          : (startStopRouteIndex ?? nearestRouteIndex);
+      const destinationIndex =
+        destStopRouteIndex ??
+        routeStops.findIndex((stop) => stop.id === destStop.id);
       setStopsAway(
         destinationIndex > nearestIndex
           ? destinationIndex - nearestIndex
@@ -91,43 +116,43 @@ export function TrackPage({
     trackingPosition,
     routeStops,
     destStop,
+    destStopRouteIndex,
     startStop,
+    startStopRouteIndex,
     startStopManuallySet,
     tripStarted,
     tripStopIndex,
   ]);
 
   useEffect(() => {
-    if (!tripStarted || !userPosition || tripStopIndex === null) return;
-    let reachedIndex = -1;
-    let closestDistance = 50;
-    for (let index = tripStopIndex + 1; index < routeStops.length; index++) {
-      const stop = routeStops[index];
-      const distance = getDistance(
-        userPosition[0],
-        userPosition[1],
-        stop.lat,
-        stop.lng,
-      );
-      if (distance <= closestDistance) {
-        closestDistance = distance;
-        reachedIndex = index;
-      }
-    }
-    if (reachedIndex > tripStopIndex) setTripStopIndex(reachedIndex);
-  }, [tripStarted, userPosition, tripStopIndex, routeStops]);
+    if (!tripStarted || tripProgress.currentStopIndex === null) return;
+    setTripStopIndex((current) =>
+      current === null
+        ? tripProgress.currentStopIndex
+        : Math.max(current, tripProgress.currentStopIndex!),
+    );
+  }, [tripStarted, tripProgress.currentStopIndex]);
 
   useEffect(() => {
     if (trackingPosition || !startStop || !destStop || routeStops.length === 0)
       return;
-    const startIndex = routeStops.findIndex((stop) => stop.id === startStop.id);
-    const destinationIndex = routeStops.findIndex(
-      (stop) => stop.id === destStop.id,
-    );
+    const startIndex =
+      startStopRouteIndex ??
+      routeStops.findIndex((stop) => stop.id === startStop.id);
+    const destinationIndex =
+      destStopRouteIndex ??
+      routeStops.findIndex((stop) => stop.id === destStop.id);
     setStopsAway(
       destinationIndex > startIndex ? destinationIndex - startIndex : null,
     );
-  }, [trackingPosition, startStop, destStop, routeStops]);
+  }, [
+    trackingPosition,
+    startStop,
+    startStopRouteIndex,
+    destStop,
+    destStopRouteIndex,
+    routeStops,
+  ]);
 
   const highlightPath = useMemo<[number, number][]>(() => {
     const currentStop =
@@ -135,11 +160,14 @@ export function TrackPage({
         ? routeStops[tripStopIndex]
         : startStop;
     if (!routeStops.length || !currentStop) return [];
-    const startIndex = routeStops.findIndex(
-      (stop) => stop.id === currentStop.id,
-    );
+    const startIndex =
+      tripStarted && tripStopIndex !== null
+        ? tripStopIndex
+        : (startStopRouteIndex ??
+          routeStops.findIndex((stop) => stop.id === currentStop.id));
     const destinationIndex = destStop
-      ? routeStops.findIndex((stop) => stop.id === destStop.id)
+      ? (destStopRouteIndex ??
+        routeStops.findIndex((stop) => stop.id === destStop.id))
       : tripStarted
         ? routeStops.length - 1
         : -1;
@@ -147,7 +175,15 @@ export function TrackPage({
     return routeStops
       .slice(startIndex, destinationIndex + 1)
       .map((stop) => [stop.lat, stop.lng]);
-  }, [routeStops, startStop, destStop, tripStarted, tripStopIndex]);
+  }, [
+    routeStops,
+    startStop,
+    startStopRouteIndex,
+    destStop,
+    destStopRouteIndex,
+    tripStarted,
+    tripStopIndex,
+  ]);
 
   const activeStop =
     tripStarted && tripStopIndex !== null
@@ -177,16 +213,37 @@ export function TrackPage({
     });
   }, [userPosition, startStop]);
 
+  const destinationRouteIndex =
+    destStopRouteIndex ??
+    (destStop ? routeStops.findIndex((stop) => stop.id === destStop.id) : -1);
+  const destinationProgressMeters =
+    destinationRouteIndex > 0
+      ? routeGeometry?.segments[destinationRouteIndex - 1]?.endDistanceMeters
+      : undefined;
+  const destinationOccurrenceIsNear =
+    destinationProgressMeters !== undefined &&
+    tripProgress.progressMeters !== null &&
+    tripProgress.progressMeters >= destinationProgressMeters - 80;
+  const destinationAlertKey = destStop
+    ? `${destStop.id}:${destinationRouteIndex}`
+    : null;
+
   useEffect(() => {
-    if (!tripStarted || !userPosition || !destStop) return;
+    if (
+      !tripStarted ||
+      !userPosition ||
+      !destStop ||
+      !destinationOccurrenceIsNear
+    )
+      return;
     const distance = getDistance(
       userPosition[0],
       userPosition[1],
       destStop.lat,
       destStop.lng,
     );
-    if (distance <= 50 && arrivalAlertStop.current !== destStop.id) {
-      arrivalAlertStop.current = destStop.id;
+    if (distance <= 50 && arrivalAlertStop.current !== destinationAlertKey) {
+      arrivalAlertStop.current = destinationAlertKey;
       setStopAlert({
         title: "You are about to arrive",
         body: `${destStop.name} is nearby. Get ready to alight.`,
@@ -198,24 +255,30 @@ export function TrackPage({
         });
       }
     }
-  }, [tripStarted, userPosition, destStop]);
+  }, [
+    tripStarted,
+    userPosition,
+    destStop,
+    destinationAlertKey,
+    destinationOccurrenceIsNear,
+  ]);
 
   useEffect(() => {
     if (!tripStarted || !destStop || stopsAway !== 1) return;
-    if (approachingAlertStop.current === destStop.id) return;
-    approachingAlertStop.current = destStop.id;
+    if (approachingAlertStop.current === destinationAlertKey) return;
+    approachingAlertStop.current = destinationAlertKey;
     setStopAlert({
       title: "Approaching your stop!",
       body: `${destStop.name} is the next stop. Get ready!`,
     });
     playArrivalTone();
-  }, [tripStarted, destStop, stopsAway]);
+  }, [tripStarted, destStop, destinationAlertKey, stopsAway]);
 
   useEffect(() => {
     arrivalAlertStop.current = null;
     approachingAlertStop.current = null;
     setStopAlert(null);
-  }, [destStop?.id]);
+  }, [destStop?.id, destStopRouteIndex]);
 
   useEffect(() => setMapRotation(0), [selectedRoute?.id]);
 
@@ -254,10 +317,13 @@ export function TrackPage({
               onClick={() => {
                 setSelectedRoute(route);
                 setStartStop(null);
+                setStartStopRouteIndex(null);
                 setStartStopManuallySet(false);
                 setDestStop(null);
+                setDestStopRouteIndex(null);
                 setTripStarted(false);
                 setTripStopIndex(null);
+                setTripStartStopIndex(null);
                 setShowRoutePicker(false);
               }}
               className="w-full flex items-center gap-4 px-4 py-4 border-b text-left active:bg-gray-50"
@@ -304,7 +370,8 @@ export function TrackPage({
   }
 
   const startIndex = startStop
-    ? routeStops.findIndex((stop) => stop.id === startStop.id)
+    ? (startStopRouteIndex ??
+      routeStops.findIndex((stop) => stop.id === startStop.id))
     : -1;
   const destinationOptions =
     startIndex >= 0 ? routeStops.slice(startIndex + 1) : [];
@@ -334,6 +401,7 @@ export function TrackPage({
           <button
             onClick={() => {
               setDestStop(null);
+              setDestStopRouteIndex(null);
               setShowDestPicker(false);
             }}
             className="w-full px-4 py-4 border-b text-left text-sm active:bg-gray-50"
@@ -343,24 +411,32 @@ export function TrackPage({
           </button>
           {destinationOptions.map((stop, index) => (
             <button
-              key={stop.id}
+              key={`${stop.id}-${index}`}
               onClick={() => {
                 setDestStop(stop);
+                setDestStopRouteIndex(startIndex + index + 1);
                 setShowDestPicker(false);
               }}
               className="w-full flex items-center gap-3 px-4 py-4 border-b text-left active:bg-gray-50"
               style={{
                 borderColor: "var(--border)",
                 background:
-                  destStop?.id === stop.id ? "var(--purple-pale)" : "white",
+                  destStopRouteIndex === startIndex + index + 1
+                    ? "var(--purple-pale)"
+                    : "white",
               }}
             >
               <div
                 className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                 style={{
                   background:
-                    destStop?.id === stop.id ? "var(--purple)" : "var(--bg)",
-                  color: destStop?.id === stop.id ? "white" : "var(--muted)",
+                    destStopRouteIndex === startIndex + index + 1
+                      ? "var(--purple)"
+                      : "var(--bg)",
+                  color:
+                    destStopRouteIndex === startIndex + index + 1
+                      ? "white"
+                      : "var(--muted)",
                 }}
               >
                 {index + 1}
@@ -405,23 +481,30 @@ export function TrackPage({
               key={`${stop.id}-${index}`}
               onClick={() => {
                 setStartStop(stop);
+                setStartStopRouteIndex(index);
                 setStartStopManuallySet(true);
                 setDestStop(null);
+                setDestStopRouteIndex(null);
                 setShowStartPicker(false);
               }}
               className="w-full flex items-center gap-3 px-4 py-4 border-b text-left active:bg-gray-50"
               style={{
                 borderColor: "var(--border)",
                 background:
-                  startStop?.id === stop.id ? "var(--purple-pale)" : "white",
+                  startStopRouteIndex === index
+                    ? "var(--purple-pale)"
+                    : "white",
               }}
             >
               <div
                 className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                 style={{
                   background:
-                    startStop?.id === stop.id ? "var(--purple)" : "var(--bg)",
-                  color: startStop?.id === stop.id ? "white" : "var(--muted)",
+                    startStopRouteIndex === index
+                      ? "var(--purple)"
+                      : "var(--bg)",
+                  color:
+                    startStopRouteIndex === index ? "white" : "var(--muted)",
                 }}
               >
                 {index + 1}
@@ -492,8 +575,30 @@ export function TrackPage({
         )}
       </div>
 
-      <div ref={contentScrollRef} className="flex-1 min-h-0 scrollable">
-        <div className="mx-3 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
+      <div ref={contentScrollRef} className="flex-1 min-h-0 tracker-scrollable">
+        {selectedRoute && (
+          <div className="sticky top-0 z-[600] flex justify-end gap-1 px-3 py-2 pointer-events-none">
+            <button
+              type="button"
+              onClick={() => setMapRotation((value) => value - 15)}
+              className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
+              style={{ color: "var(--purple)" }}
+              aria-label="Rotate left"
+            >
+              ↺
+            </button>
+            <button
+              type="button"
+              onClick={() => setMapRotation((value) => value + 15)}
+              className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
+              style={{ color: "var(--purple)" }}
+              aria-label="Rotate right"
+            >
+              ↻
+            </button>
+          </div>
+        )}
+        <div className="ml-3 mr-8 mt-3 rounded-2xl overflow-hidden shadow-sm bg-white">
           {selectedRoute ? (
             <div className="relative">
               <CampusMap
@@ -504,40 +609,18 @@ export function TrackPage({
                   tripStarted ? undefined : (guidancePoints ?? undefined)
                 }
                 dimRoute={tripStarted}
+                tripProgressMeters={
+                  tripStarted ? tripProgress.progressMeters : null
+                }
+                tripStartStopIndex={tripStartStopIndex ?? 0}
                 highlightStopId={activeStop?.id}
                 focusStopId={activeStop?.id ?? destStop?.id ?? undefined}
-                height={tripStarted ? 520 : 240}
+                height={tripStarted ? "clamp(260px, 42svh, 380px)" : 240}
                 rotation={mapRotation}
                 userHeading={userHeading ?? 0}
                 enableTouchRotate
                 onRotationChange={setMapRotation}
               />
-              <div className="absolute right-2 top-2 z-[500] flex gap-1">
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setMapRotation((value) => value - 15);
-                  }}
-                  className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
-                  style={{ color: "var(--purple)" }}
-                  aria-label="Rotate left"
-                >
-                  ↺
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setMapRotation((value) => value + 15);
-                  }}
-                  className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold"
-                  style={{ color: "var(--purple)" }}
-                  aria-label="Rotate right"
-                >
-                  ↻
-                </button>
-              </div>
             </div>
           ) : (
             <div
@@ -734,7 +817,9 @@ export function TrackPage({
                 if (tripStarted) {
                   endTrip();
                 } else {
-                  setTripStopIndex(startIndex >= 0 ? startIndex : 0);
+                  const initialStopIndex = startIndex >= 0 ? startIndex : 0;
+                  setTripStartStopIndex(initialStopIndex);
+                  setTripStopIndex(initialStopIndex);
                   setTripStarted(true);
                 }
               }}

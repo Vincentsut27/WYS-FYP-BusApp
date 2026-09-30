@@ -1,14 +1,28 @@
-import { useEffect, useRef, useState } from "react";
-import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, ZoomControl, useMap } from "react-leaflet";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  CircleMarker,
+  MapContainer,
+  Marker,
+  Polyline,
+  Popup,
+  TileLayer,
+  ZoomControl,
+  useMap,
+} from "react-leaflet";
 import L from "leaflet";
 import { ROUTES, STOPS } from "../data/routes";
+import { useRouteGeometry } from "../hooks/useRouteGeometry";
+import {
+  createRouteFadePieces,
+  getFadeOpacity,
+  getVisibleFadePath,
+} from "../lib/pathFade";
 import type { Stop } from "../types/transit";
 import "leaflet/dist/leaflet.css";
 
 const CAMPUS_CENTER: [number, number] = [22.419, 114.207];
 const ROUTE_ACCENT = "#7C2D9C";
 const ROUTE_HIGHLIGHT = "#8B5CF6";
-const ROAD_PATH_CACHE: Record<string, [number, number][]> = {};
 
 async function fetchRoadPath(points: [number, number][]) {
   if (points.length < 2) return points;
@@ -16,17 +30,24 @@ async function fetchRoadPath(points: [number, number][]) {
     points.slice(0, -1).map(async (start, index) => {
       const end = points[index + 1];
       const coordinates = `${start[1]},${start[0]};${end[1]},${end[0]}`;
-      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`);
+      const response = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
+      );
       if (!response.ok) return null;
       const data = await response.json();
       const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
-      if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) return null;
-      return routeCoordinates.map(([lng, lat]: [number, number]) => [lat, lng] as [number, number]);
+      if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2)
+        return null;
+      return routeCoordinates.map(
+        ([lng, lat]: [number, number]) => [lat, lng] as [number, number],
+      );
     }),
   );
   if (segments.some((segment) => !segment)) return points;
   const merged: [number, number][] = [];
-  segments.forEach((segment, index) => merged.push(...(index === 0 ? segment! : segment!.slice(1))));
+  segments.forEach((segment, index) =>
+    merged.push(...(index === 0 ? segment! : segment!.slice(1))),
+  );
   return merged;
 }
 
@@ -36,7 +57,11 @@ function pathDistance2(first: [number, number], second: [number, number]) {
   return dLat * dLat + dLng * dLng;
 }
 
-function nearestPathIndex(path: [number, number][], point: [number, number], fromIndex = 0) {
+function nearestPathIndex(
+  path: [number, number][],
+  point: [number, number],
+  fromIndex = 0,
+) {
   let bestIndex = fromIndex;
   let bestDistance = Infinity;
   for (let index = fromIndex; index < path.length; index++) {
@@ -49,7 +74,10 @@ function nearestPathIndex(path: [number, number][], point: [number, number], fro
   return bestIndex;
 }
 
-function sliceRoadPath(roadPath: [number, number][], waypoints: [number, number][]) {
+function sliceRoadPath(
+  roadPath: [number, number][],
+  waypoints: [number, number][],
+) {
   if (roadPath.length < 2 || waypoints.length < 2) return null;
   let searchFrom = 0;
   const indices = waypoints.map((waypoint) => {
@@ -64,7 +92,13 @@ function sliceRoadPath(roadPath: [number, number][], waypoints: [number, number]
   return sliced.length >= 2 ? sliced : null;
 }
 
-function MapViewport({ points, locked = false }: { points: [number, number][]; locked?: boolean }) {
+function MapViewport({
+  points,
+  locked = false,
+}: {
+  points: [number, number][];
+  locked?: boolean;
+}) {
   const map = useMap();
   const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join(";");
   useEffect(() => {
@@ -73,12 +107,21 @@ function MapViewport({ points, locked = false }: { points: [number, number][]; l
       map.setView(points[0], Math.max(map.getZoom(), 17), { animate: true });
       return;
     }
-    if (points.length > 1) map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
+    if (points.length > 1)
+      map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
   }, [locked, map, pointsKey]);
   return null;
 }
 
-function MapFocusStop({ stopId, active, focusNonce = 0 }: { stopId?: string; active: boolean; focusNonce?: number }) {
+function MapFocusStop({
+  stopId,
+  active,
+  focusNonce = 0,
+}: {
+  stopId?: string;
+  active: boolean;
+  focusNonce?: number;
+}) {
   const map = useMap();
   useEffect(() => {
     if (!active || !stopId) return;
@@ -96,9 +139,16 @@ function applyMapBearing(map: L.Map, rotation: number) {
   if (!pane) return;
   const size = map.getSize();
   const panePos = L.DomUtil.getPosition(pane) ?? L.point(0, 0);
+  const radians = (rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  const scale = Math.max(
+    cos + (size.y / size.x) * sin,
+    cos + (size.x / size.y) * sin,
+  );
   pane.style.transformOrigin = `${size.x / 2 - panePos.x}px ${size.y / 2 - panePos.y}px`;
   pane.style.rotate = `${rotation}deg`;
-  pane.style.scale = "";
+  pane.style.scale = `${scale}`;
 }
 
 function screenDeltaToMapDelta(dx: number, dy: number, rotation: number) {
@@ -137,10 +187,15 @@ function MapBearing({ rotation }: { rotation: number }) {
       if (!previous) return;
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (rotationRef.current === 0 || pointers.size !== 1) return;
-      const offset = screenDeltaToMapDelta(event.clientX - previous.x, event.clientY - previous.y, rotationRef.current);
+      const offset = screenDeltaToMapDelta(
+        event.clientX - previous.x,
+        event.clientY - previous.y,
+        rotationRef.current,
+      );
       map.panBy([-offset.x, -offset.y], { animate: false, noMoveStart: true });
     };
-    const onPointerUp = (event: PointerEvent) => pointers.delete(event.pointerId);
+    const onPointerUp = (event: PointerEvent) =>
+      pointers.delete(event.pointerId);
     if (rotation) map.dragging.disable();
     else map.dragging.enable();
     container.addEventListener("pointerdown", onPointerDown);
@@ -158,7 +213,15 @@ function MapBearing({ rotation }: { rotation: number }) {
   return null;
 }
 
-function MapTouchRotate({ enabled = false, rotation, onRotationChange }: { enabled?: boolean; rotation: number; onRotationChange?: (next: number) => void }) {
+function MapTouchRotate({
+  enabled = false,
+  rotation,
+  onRotationChange,
+}: {
+  enabled?: boolean;
+  rotation: number;
+  onRotationChange?: (next: number) => void;
+}) {
   const map = useMap();
   const rotationRef = useRef(rotation);
   const lastAngleRef = useRef<number | null>(null);
@@ -170,10 +233,17 @@ function MapTouchRotate({ enabled = false, rotation, onRotationChange }: { enabl
       const first = touches.item(0);
       const second = touches.item(1);
       if (!first || !second) return 0;
-      return Math.atan2(second.clientY - first.clientY, second.clientX - first.clientX) * (180 / Math.PI);
+      return (
+        Math.atan2(
+          second.clientY - first.clientY,
+          second.clientX - first.clientX,
+        ) *
+        (180 / Math.PI)
+      );
     };
     const onStart = (event: TouchEvent) => {
-      lastAngleRef.current = event.touches.length === 2 ? touchAngle(event.touches) : null;
+      lastAngleRef.current =
+        event.touches.length === 2 ? touchAngle(event.touches) : null;
     };
     const onMove = (event: TouchEvent) => {
       if (event.touches.length !== 2 || lastAngleRef.current == null) return;
@@ -205,7 +275,9 @@ function MapSizeSync() {
   const map = useMap();
   useEffect(() => {
     const container = map.getContainer();
-    const resizeObserver = new ResizeObserver(() => map.invalidateSize({ animate: false }));
+    const resizeObserver = new ResizeObserver(() =>
+      map.invalidateSize({ animate: false }),
+    );
     resizeObserver.observe(container);
     map.invalidateSize({ animate: false });
     return () => resizeObserver.disconnect();
@@ -213,7 +285,13 @@ function MapSizeSync() {
   return null;
 }
 
-function UserMapFocus({ position, active }: { position?: [number, number] | null; active: boolean }) {
+function UserMapFocus({
+  position,
+  active,
+}: {
+  position?: [number, number] | null;
+  active: boolean;
+}) {
   const map = useMap();
   useEffect(() => {
     if (active && position) {
@@ -225,9 +303,24 @@ function UserMapFocus({ position, active }: { position?: [number, number] | null
 }
 
 export function CampusMap({
-  routeId, highlightStopId, focusStopId, userPos, highlightPath, focusUser = false,
-  showAllStops = false, onStopClick, height = 240, rotation = 0, userHeading = 0,
-  guidancePoints, focusNonce = 0, enableTouchRotate = false, onRotationChange, dimRoute = false,
+  routeId,
+  highlightStopId,
+  focusStopId,
+  userPos,
+  highlightPath,
+  focusUser = false,
+  showAllStops = false,
+  onStopClick,
+  height = 240,
+  rotation = 0,
+  userHeading = 0,
+  guidancePoints,
+  focusNonce = 0,
+  enableTouchRotate = false,
+  onRotationChange,
+  dimRoute = false,
+  tripProgressMeters = null,
+  tripStartStopIndex = 0,
 }: {
   routeId?: string;
   highlightStopId?: string;
@@ -238,42 +331,41 @@ export function CampusMap({
   focusUser?: boolean;
   showAllStops?: boolean;
   onStopClick?: (stop: Stop) => void;
-  height?: number;
+  height?: number | string;
   rotation?: number;
   userHeading?: number;
   focusNonce?: number;
   enableTouchRotate?: boolean;
   onRotationChange?: (next: number) => void;
   dimRoute?: boolean;
+  tripProgressMeters?: number | null;
+  tripStartStopIndex?: number;
 }) {
-  const route = routeId ? ROUTES.find((candidate) => candidate.id === routeId) : null;
-  const routeStops = route ? route.stopIds.map((id) => STOPS[id]).filter(Boolean) : [];
-  const displayStops = (showAllStops ? Object.values(STOPS) : routeStops)
-    .filter((stop, index, stops) => stops.findIndex((candidate) => candidate.id === stop.id) === index);
+  const route = routeId
+    ? ROUTES.find((candidate) => candidate.id === routeId)
+    : null;
+  const routeStops = route
+    ? route.stopIds.map((id) => STOPS[id]).filter(Boolean)
+    : [];
+  const displayStops = (
+    showAllStops ? Object.values(STOPS) : routeStops
+  ).filter(
+    (stop, index, stops) =>
+      stops.findIndex((candidate) => candidate.id === stop.id) === index,
+  );
   const routeColor = route?.color ?? ROUTE_ACCENT;
-  const routePath = routeStops.map((stop) => [stop.lat, stop.lng] as [number, number]);
-  const [roadPath, setRoadPath] = useState<[number, number][] | null>(null);
-  const [highlightRoadPath, setHighlightRoadPath] = useState<[number, number][] | null>(null);
-
-  useEffect(() => {
-    if (!route || routePath.length < 2) {
-      setRoadPath(null);
-      return;
-    }
-    if (route.id in ROAD_PATH_CACHE) {
-      setRoadPath(ROAD_PATH_CACHE[route.id]);
-      return;
-    }
-    let active = true;
-    fetchRoadPath(routePath).then((nextPath) => {
-      if (!active) return;
-      ROAD_PATH_CACHE[route.id] = nextPath;
-      setRoadPath(nextPath);
-    }).catch(() => {
-      if (active) setRoadPath(null);
-    });
-    return () => { active = false; };
-  }, [routeId]);
+  const routePath = routeStops.map(
+    (stop) => [stop.lat, stop.lng] as [number, number],
+  );
+  const routeGeometry = useRouteGeometry(routeId, routePath);
+  const roadPath = routeGeometry?.points ?? null;
+  const pastRoutePieces = useMemo(
+    () => (routeGeometry ? createRouteFadePieces(routeGeometry.segments) : []),
+    [routeGeometry],
+  );
+  const [highlightRoadPath, setHighlightRoadPath] = useState<
+    [number, number][] | null
+  >(null);
 
   useEffect(() => {
     if (!highlightPath || highlightPath.length < 2) {
@@ -286,44 +378,129 @@ export function CampusMap({
       return;
     }
     let active = true;
-    fetchRoadPath(highlightPath).then((nextPath) => {
-      if (!active) return;
-      setHighlightRoadPath(nextPath.length > 1 ? nextPath : null);
-    }).catch(() => {
-      if (active) setHighlightRoadPath(slicedPath);
-    });
-    return () => { active = false; };
+    fetchRoadPath(highlightPath)
+      .then((nextPath) => {
+        if (!active) return;
+        setHighlightRoadPath(nextPath.length > 1 ? nextPath : null);
+      })
+      .catch(() => {
+        if (active) setHighlightRoadPath(slicedPath);
+      });
+    return () => {
+      active = false;
+    };
   }, [highlightPath, roadPath]);
 
   const renderedPath = roadPath ?? routePath;
   return (
-    <div className="relative w-full overflow-hidden" style={{ height, touchAction: enableTouchRotate ? "none" : undefined }}>
-      <MapContainer center={CAMPUS_CENTER} zoom={15} scrollWheelZoom={false} zoomControl={false} className="h-full w-full">
+    <div
+      className="relative w-full overflow-hidden"
+      style={{ height, touchAction: enableTouchRotate ? "pan-y" : undefined }}
+    >
+      <MapContainer
+        center={CAMPUS_CENTER}
+        zoom={15}
+        scrollWheelZoom={false}
+        zoomControl={false}
+        className="h-full w-full"
+      >
         <ZoomControl position="bottomright" />
         <MapSizeSync />
         <MapBearing rotation={rotation} />
-        <MapTouchRotate enabled={enableTouchRotate} rotation={rotation} onRotationChange={onRotationChange} />
+        <MapTouchRotate
+          enabled={enableTouchRotate}
+          rotation={rotation}
+          onRotationChange={onRotationChange}
+        />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <MapViewport points={renderedPath.length > 1 ? renderedPath : displayStops.map((stop) => [stop.lat, stop.lng])} locked={Boolean(focusStopId)} />
-        <MapFocusStop stopId={focusStopId} active={Boolean(focusStopId)} focusNonce={focusNonce} />
+        <MapViewport
+          points={
+            renderedPath.length > 1
+              ? renderedPath
+              : displayStops.map((stop) => [stop.lat, stop.lng])
+          }
+          locked={Boolean(focusStopId)}
+        />
+        <MapFocusStop
+          stopId={focusStopId}
+          active={Boolean(focusStopId)}
+          focusNonce={focusNonce}
+        />
         <UserMapFocus position={userPos} active={focusUser} />
-        {route && roadPath && roadPath.length > 1 && <Polyline positions={roadPath} pathOptions={{ color: routeColor, weight: 5, opacity: dimRoute ? 0.25 : 0.9 }} />}
-        {highlightRoadPath && highlightRoadPath.length > 1 && <Polyline positions={highlightRoadPath} pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 8, opacity: 0.95 }} />}
-        {guidancePoints && guidancePoints.length > 1 && guidancePoints.map((point, index) => (
-          <CircleMarker key={`guidance-${index}`} center={point} radius={3.25} pathOptions={{ color: "#7C3AED", weight: 1, fillColor: "#7C3AED", fillOpacity: 0.9 }} />
-        ))}
+        {route && renderedPath.length > 1 && (
+          <Polyline
+            positions={renderedPath}
+            pathOptions={{
+              color: routeColor,
+              weight: 4,
+              opacity: dimRoute ? 0.25 : 0.86,
+            }}
+          />
+        )}
+        {tripProgressMeters !== null &&
+          pastRoutePieces.map((piece) => {
+            if (piece.stopIndex < tripStartStopIndex) return null;
+            const visiblePath = getVisibleFadePath(piece, tripProgressMeters);
+            if (!visiblePath) return null;
+            const opacity = getFadeOpacity(piece, tripProgressMeters);
+            return (
+              <Polyline
+                key={`past-route-${piece.stopIndex}-${piece.startDistanceMeters}`}
+                positions={visiblePath}
+                pathOptions={{
+                  color: routeColor,
+                  weight: 6,
+                  opacity,
+                  lineCap: "round",
+                  lineJoin: "round",
+                }}
+              />
+            );
+          })}
+        {highlightRoadPath && highlightRoadPath.length > 1 && (
+          <Polyline
+            positions={highlightRoadPath}
+            pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 6, opacity: 0.92 }}
+          />
+        )}
+        {guidancePoints &&
+          guidancePoints.length > 1 &&
+          guidancePoints.map((point, index) => (
+            <CircleMarker
+              key={`guidance-${index}`}
+              center={point}
+              radius={3.25}
+              pathOptions={{
+                color: "#7C3AED",
+                weight: 1,
+                fillColor: "#7C3AED",
+                fillOpacity: 0.9,
+              }}
+            />
+          ))}
         {displayStops.map((stop) => {
           const isHighlighted = stop.id === highlightStopId;
-          const isRouteStop = routeStops.some((routeStop) => routeStop.id === stop.id);
+          const isRouteStop = routeStops.some(
+            (routeStop) => routeStop.id === stop.id,
+          );
           return (
             <CircleMarker
               key={stop.id}
               center={[stop.lat, stop.lng]}
               radius={isHighlighted ? 9 : isRouteStop ? 7 : 5}
-              pathOptions={{ color: "white", weight: isHighlighted ? 3 : 2, fillColor: isHighlighted ? ROUTE_ACCENT : isRouteStop ? "#A78BFA" : "#1D4ED8", fillOpacity: 1 }}
+              pathOptions={{
+                color: "white",
+                weight: isHighlighted ? 3 : 2,
+                fillColor: isHighlighted
+                  ? ROUTE_ACCENT
+                  : isRouteStop
+                    ? "#A78BFA"
+                    : "#1D4ED8",
+                fillOpacity: 1,
+              }}
               eventHandlers={{ click: () => onStopClick?.(stop) }}
             >
               <Popup>{stop.name}</Popup>
@@ -336,7 +513,9 @@ export function CampusMap({
             icon={L.divIcon({
               className: "user-direction-marker",
               html: `<svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading - rotation}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;"><polygon points="32,4 56,46 40,46 40,60 24,60 24,46 8,46" fill="#2563EB" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linejoin="round" /></svg>`,
-              iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -18],
+              iconSize: [28, 28],
+              iconAnchor: [14, 14],
+              popupAnchor: [0, -18],
             })}
           >
             <Popup>Your location</Popup>

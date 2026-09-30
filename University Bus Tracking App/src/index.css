@@ -1,37 +1,71 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-@import 'tailwindcss';
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   overflow: hidden;
 }
 
 :root {
-  --purple: #7C2D9C;
-  --purple-light: #9B4DBB;
-  --purple-pale: #F3E8FA;
-  --purple-dark: #5A1F72;
-  --bg: #F4F5F8;
-  --card: #FFFFFF;
-  --text: #1A1A2E;
-  --muted: #8B8BA7;
-  --border: #E5E5F0;
-  --success: #22C55E;
-  --warning: #F59E0B;
-  --navy: #1E293B;
+  --purple: #7c2d9c;
+  --purple-light: #9b4dbb;
+  --purple-pale: #f3e8fa;
+  --purple-dark: #5a1f72;
+  --bg: #f4f5f8;
+  --card: #ffffff;
+  --text: #1a1a2e;
+  --muted: #8b8ba7;
+  --border: #e5e5f0;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --navy: #1e293b;
 }
 
-* { font-family: 'Inter', sans-serif; }
+* {
+  font-family: "Inter", sans-serif;
+}
 
-.scrollable { overflow-y: auto; -webkit-overflow-scrolling: touch; }
-.scrollable::-webkit-scrollbar { display: none; }
+.scrollable {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.scrollable::-webkit-scrollbar {
+  display: none;
+}
+.tracker-scrollable {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: auto;
+  scrollbar-color: #a78bfa transparent;
+}
+.tracker-scrollable::-webkit-scrollbar {
+  width: 12px;
+}
+.tracker-scrollable::-webkit-scrollbar-thumb {
+  background: #a78bfa;
+  border-radius: 4px;
+}
 
-.leaflet-container { height: 100%; width: 100%; font-family: 'Inter', sans-serif; }
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  font-family: "Inter", sans-serif;
+}
 
-.tab-bar-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.tab-bar-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 
 @keyframes slide-up {
-  from { transform: translateY(100%); }
-  to { transform: translateY(0); }
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
-.slide-up { animation: slide-up 0.3s cubic-bezier(.4,0,.2,1); }
+.slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
