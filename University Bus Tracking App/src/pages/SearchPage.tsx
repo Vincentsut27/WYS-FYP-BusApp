@@ -323,12 +323,28 @@ export function SearchPage({
                         Track route · {route.label} · {from!.name} → {to!.name}
                       </button>
                       <button
-                        onClick={(event) => {
+                        onClick={async (event) => {
                           event.stopPropagation();
-                          onNotify({
+                          setNotificationFeedback({
+                            routeId: route.id,
+                            message: "Setting reminder...",
+                          });
+                          const permission = await onNotify({
                             route,
                             origin: STOPS[from!.searchIds[0]],
                             arrivalMinutes,
+                          });
+                          const message =
+                            permission === "granted"
+                              ? `Reminder set for about ${arrivalMinutes} min from now.`
+                              : permission === "unsupported"
+                                ? `In-app reminder set for about ${arrivalMinutes} min. ${window.isSecureContext ? "Browser notifications are unavailable here." : "Browser notifications require a secure HTTPS connection."}`
+                                : permission === "denied"
+                                  ? `In-app reminder set for about ${arrivalMinutes} min. Allow notifications for this site in browser settings to receive browser alerts.`
+                                  : `In-app reminder set for about ${arrivalMinutes} min. Browser permission is still pending.`;
+                          setNotificationFeedback({
+                            routeId: route.id,
+                            message,
                           });
                         }}
                         className="px-2.5 py-1 rounded-full text-[10px] font-bold"
@@ -340,6 +356,15 @@ export function SearchPage({
                         Notify me
                       </button>
                     </div>
+                    {notificationFeedback?.routeId === route.id && (
+                      <div
+                        className="mt-2 text-xs leading-5"
+                        style={{ color: "var(--muted)" }}
+                        role="status"
+                      >
+                        {notificationFeedback.message}
+                      </div>
+                    )}
                     {expandedRouteId === route.id && (
                       <div
                         className="mt-3 pt-3 border-t"
@@ -481,24 +506,6 @@ export function SearchPage({
           </div>
         </div>
       )}
-      onClick=
-      {async (event) => {
-        event.stopPropagation();
-        const permission = await onNotify({
-          route,
-          origin: STOPS[from!.searchIds[0]],
-          arrivalMinutes,
-        });
-        const message =
-          permission === "granted"
-            ? `Reminder set for about ${arrivalMinutes} min from now.`
-            : permission === "unsupported"
-              ? `In-app reminder set for about ${arrivalMinutes} min. ${window.isSecureContext ? "Browser notifications are unavailable here." : "Browser notifications require a secure HTTPS connection."}`
-              : permission === "denied"
-                ? `In-app reminder set for about ${arrivalMinutes} min. Allow notifications for this site in browser settings to receive browser alerts.`
-                : `In-app reminder set for about ${arrivalMinutes} min. Browser permission is still pending.`;
-        setNotificationFeedback({ routeId: route.id, message });
-      }}
     </div>
   );
 }
