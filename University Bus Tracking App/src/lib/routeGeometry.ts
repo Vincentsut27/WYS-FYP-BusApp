@@ -15,7 +15,13 @@ export interface RouteGeometry {
   totalDistanceMeters: number;
 }
 
+interface RoadRoute {
+  points: Coordinate[];
+  waypointIndices: number[];
+}
+
 const routeGeometryCache = new Map<string, Promise<RouteGeometry>>();
+const roadRouteCache = new Map<string, Promise<RoadRoute | null>>();
 
 export function distanceBetweenCoordinates(
   first: Coordinate,
@@ -54,55 +60,121 @@ function nearestPathIndex(
   return nearestIndex;
 }
 
-async function fetchRouteSegments(stops: Coordinate[]) {
-  const coordinates = stops
-    .map(([latitude, longitude]) => `${longitude},${latitude}`)
+function getCoordinatesKey(points: Coordinate[]) {
+  return points
+    .map(([latitude, longitude]) => `${latitude},${longitude}`)
     .join(";");
-  try {
+}
+
+function loadRoadRoute(stops: Coordinate[]) {
+  const coordinatesKey = getCoordinatesKey(stops);
+  const cached = roadRouteCache.get(coordinatesKey);
+  if (cached) return cached;
+
+  const request = (async (): Promise<RoadRoute | null> => {
+    const coordinates = stops
+      .map(([latitude, longitude]) => `${longitude},${latitude}`)
+      .join(";");
     const response = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
+      { signal: AbortSignal.timeout(8000) },
     );
-    if (!response.ok) throw new Error("Road route request failed.");
-    const data = await response.json();
+    if (!response.ok) return null;
+    const data: {
+      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+      waypoints?: { location?: [number, number] }[];
+    } = await response.json();
     const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
     const waypoints = data.waypoints;
     if (
       !Array.isArray(routeCoordinates) ||
       routeCoordinates.length < 2 ||
       !Array.isArray(waypoints) ||
-      waypoints.length !== stops.length
+      waypoints.length !== stops.length ||
+      waypoints.some((waypoint) => !waypoint.location)
     ) {
-      throw new Error("Road route response was incomplete.");
+      return null;
     }
+
     const roadPath = routeCoordinates.map(
-      ([longitude, latitude]: [number, number]) =>
-        [latitude, longitude] as Coordinate,
+      ([longitude, latitude]) => [latitude, longitude] as Coordinate,
     );
     let searchFrom = 0;
-    const waypointIndices = waypoints.map(
-      (waypoint: { location: [number, number] }) => {
-        const index = nearestPathIndex(
-          roadPath,
-          [waypoint.location[1], waypoint.location[0]],
-          searchFrom,
-        );
-        searchFrom = index;
-        return index;
-      },
-    );
-    return stops.slice(0, -1).map((start, index) => {
-      const segmentStart = waypointIndices[index];
-      const segmentEnd = waypointIndices[index + 1];
-      const segment = roadPath.slice(segmentStart, segmentEnd + 1);
-      return segment.length > 1 ? segment : [start, stops[index + 1]];
+    const waypointIndices = waypoints.map((waypoint) => {
+      const location = waypoint.location!;
+      const index = nearestPathIndex(
+        roadPath,
+        [location[1], location[0]],
+        searchFrom,
+      );
+      searchFrom = index;
+      return index;
     });
-  } catch {
-    return stops.slice(0, -1).map((start, index) => [start, stops[index + 1]]);
+    return { points: roadPath, waypointIndices };
+  })().catch(() => null);
+
+  roadRouteCache.set(coordinatesKey, request);
+  void request.then((route) => {
+    if (!route && roadRouteCache.get(coordinatesKey) === request) {
+      roadRouteCache.delete(coordinatesKey);
+    }
+  });
+  return request;
+}
+
+export async function loadRoadPath(stops: Coordinate[]) {
+  if (stops.length < 2) return null;
+  const route = await loadRoadRoute(stops);
+  return route?.points ?? null;
+}
+
+async function mapWithConcurrency<T, U>(
+  items: T[],
+  concurrency: number,
+  mapItem: (item: T, index: number) => Promise<U>,
+) {
+  const results = new Array<U>(items.length);
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        results[index] = await mapItem(items[index], index);
+      }
+    }),
+  );
+  return results;
+}
+
+async function fetchRouteSegments(stops: Coordinate[]) {
+  const route = await loadRoadRoute(stops);
+  if (route) {
+    return {
+      points: stops.slice(0, -1).map((start, index) => {
+        const segmentStart = route.waypointIndices[index];
+        const segmentEnd = route.waypointIndices[index + 1];
+        const segment = route.points.slice(segmentStart, segmentEnd + 1);
+        return segment.length > 1 ? segment : [start, stops[index + 1]];
+      }),
+      fullyRouted: true,
+    };
   }
+
+  const legs = stops
+    .slice(0, -1)
+    .map((start, index) => [start, stops[index + 1]]);
+  const routedLegs = await mapWithConcurrency(legs, 4, (leg) =>
+    loadRoadRoute(leg),
+  );
+  return {
+    points: legs.map((leg, index) => routedLegs[index]?.points ?? leg),
+    fullyRouted: routedLegs.every(Boolean),
+  };
 }
 
 async function buildRouteGeometry(routeId: string, stops: Coordinate[]) {
-  const segmentPoints = await fetchRouteSegments(stops);
+  const { points: segmentPoints, fullyRouted } =
+    await fetchRouteSegments(stops);
   let totalDistanceMeters = 0;
   const segments = segmentPoints.map((points, stopIndex) => {
     const startDistanceMeters = totalDistanceMeters;
@@ -128,13 +200,30 @@ async function buildRouteGeometry(routeId: string, stops: Coordinate[]) {
       ...(routePoints.length ? segment.points.slice(1) : segment.points),
     );
   });
-  return { routeId, points: routePoints, segments, totalDistanceMeters };
+  return {
+    geometry: { routeId, points: routePoints, segments, totalDistanceMeters },
+    fullyRouted,
+  };
 }
 
 export function loadRouteGeometry(routeId: string, stops: Coordinate[]) {
-  const existing = routeGeometryCache.get(routeId);
+  const cacheKey = `${routeId}:${getCoordinatesKey(stops)}`;
+  const existing = routeGeometryCache.get(cacheKey);
   if (existing) return existing;
-  const request = buildRouteGeometry(routeId, stops);
-  routeGeometryCache.set(routeId, request);
+  let request: Promise<RouteGeometry>;
+  request = buildRouteGeometry(routeId, stops).then(
+    ({ geometry, fullyRouted }) => {
+      if (!fullyRouted && routeGeometryCache.get(cacheKey) === request) {
+        routeGeometryCache.delete(cacheKey);
+      }
+      return geometry;
+    },
+  );
+  routeGeometryCache.set(cacheKey, request);
+  void request.catch(() => {
+    if (routeGeometryCache.get(cacheKey) === request) {
+      routeGeometryCache.delete(cacheKey);
+    }
+  });
   return request;
 }

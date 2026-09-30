@@ -12,6 +12,7 @@ import {
 import L from "leaflet";
 import { ROUTES, STOPS } from "../data/routes";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
+import { loadRoadPath } from "../lib/routeGeometry";
 import {
   createRouteFadePieces,
   getFadeOpacity,
@@ -23,33 +24,6 @@ import "leaflet/dist/leaflet.css";
 const CAMPUS_CENTER: [number, number] = [22.419, 114.207];
 const ROUTE_ACCENT = "#7C2D9C";
 const ROUTE_HIGHLIGHT = "#8B5CF6";
-
-async function fetchRoadPath(points: [number, number][]) {
-  if (points.length < 2) return points;
-  const segments = await Promise.all(
-    points.slice(0, -1).map(async (start, index) => {
-      const end = points[index + 1];
-      const coordinates = `${start[1]},${start[0]};${end[1]},${end[0]}`;
-      const response = await fetch(
-        `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
-      if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2)
-        return null;
-      return routeCoordinates.map(
-        ([lng, lat]: [number, number]) => [lat, lng] as [number, number],
-      );
-    }),
-  );
-  if (segments.some((segment) => !segment)) return points;
-  const merged: [number, number][] = [];
-  segments.forEach((segment, index) =>
-    merged.push(...(index === 0 ? segment! : segment!.slice(1))),
-  );
-  return merged;
-}
 
 function pathDistance2(first: [number, number], second: [number, number]) {
   const dLat = first[0] - second[0];
@@ -448,10 +422,12 @@ export function CampusMap({
       return;
     }
     let active = true;
-    fetchRoadPath(highlightPath)
+    loadRoadPath(highlightPath)
       .then((nextPath) => {
         if (!active) return;
-        setHighlightRoadPath(nextPath.length > 1 ? nextPath : null);
+        setHighlightRoadPath(
+          nextPath && nextPath.length > 1 ? nextPath : slicedPath,
+        );
       })
       .catch(() => {
         if (active) setHighlightRoadPath(slicedPath);
