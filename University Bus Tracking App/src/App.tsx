@@ -3,7 +3,7 @@ import { BottomNav, type TabId } from "./components/BottomNav";
 import { GpsPermissionModal } from "./components/GpsPermissionModal";
 import { Icon, ICONS } from "./components/Icon";
 import { useGpsLocation } from "./hooks/useGpsLocation";
-import { ArrivalPage } from "./pages/ArrivalPage";
+import { ArrivalPage } from "@/pages/ArrivalPage";
 import { RoutesPage } from "./pages/RoutesPage";
 import { SearchPage } from "./pages/SearchPage";
 import { TrackPage } from "./pages/TrackPage";

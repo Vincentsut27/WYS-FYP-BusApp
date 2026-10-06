@@ -230,6 +230,8 @@ export function TrackPage({
   ]);
 
   const highlightPath = useMemo<[number, number][]>(() => {
+    if (!destStop) return [];
+
     const currentStop =
       tripStarted && tripStopIndex !== null
         ? routeStops[tripStopIndex]
@@ -240,12 +242,9 @@ export function TrackPage({
         ? tripStopIndex
         : (startStopRouteIndex ??
           routeStops.findIndex((stop) => stop.id === currentStop.id));
-    const destinationIndex = destStop
-      ? (destStopRouteIndex ??
-        routeStops.findIndex((stop) => stop.id === destStop.id))
-      : tripStarted
-        ? routeStops.length - 1
-        : -1;
+    const destinationIndex =
+      destStopRouteIndex ??
+      routeStops.findIndex((stop) => stop.id === destStop.id);
     if (startIndex < 0 || destinationIndex <= startIndex) return [];
     return routeStops
       .slice(startIndex, destinationIndex + 1)
@@ -302,7 +301,7 @@ export function TrackPage({
       setShowStartPrompt(false);
       return;
     }
-    const timer = window.setTimeout(() => setShowStartPrompt(true), 4000);
+    const timer = window.setTimeout(() => setShowStartPrompt(true), 5000);
     return () => window.clearTimeout(timer);
   }, [isActive, tripStarted]);
 
