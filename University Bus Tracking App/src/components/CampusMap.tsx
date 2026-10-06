@@ -12,7 +12,11 @@ import {
 import L from "leaflet";
 import { ROUTES, STOPS } from "../data/routes";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
-import { loadRoadPath } from "../lib/routeGeometry";
+import {
+  distanceBetweenCoordinates,
+  loadRoadPath,
+  loadWalkingPath,
+} from "../lib/routeGeometry";
 import {
   createRouteFadePieces,
   getFadeOpacity,
@@ -46,6 +50,48 @@ function nearestPathIndex(
     }
   }
   return bestIndex;
+}
+
+function samplePath(
+  path: [number, number][],
+  spacingMeters = 4,
+): [number, number][] {
+  if (path.length < 2) return path;
+  const segmentLengths = path
+    .slice(1)
+    .map((point, index) => distanceBetweenCoordinates(path[index], point));
+  const totalLength = segmentLengths.reduce((sum, length) => sum + length, 0);
+  if (totalLength === 0) return [path[0]];
+
+  const intervalCount = Math.max(1, Math.round(totalLength / spacingMeters));
+  const exactSpacing = totalLength / intervalCount;
+  const markers: [number, number][] = [path[0]];
+  let segmentIndex = 0;
+  let distanceBeforeSegment = 0;
+
+  for (let markerIndex = 1; markerIndex < intervalCount; markerIndex++) {
+    const targetDistance = markerIndex * exactSpacing;
+    while (
+      segmentIndex < segmentLengths.length - 1 &&
+      distanceBeforeSegment + segmentLengths[segmentIndex] < targetDistance
+    ) {
+      distanceBeforeSegment += segmentLengths[segmentIndex];
+      segmentIndex++;
+    }
+    const segmentLength = segmentLengths[segmentIndex];
+    const ratio =
+      segmentLength === 0
+        ? 0
+        : (targetDistance - distanceBeforeSegment) / segmentLength;
+    const segmentStart = path[segmentIndex];
+    const segmentEnd = path[segmentIndex + 1];
+    markers.push([
+      segmentStart[0] + (segmentEnd[0] - segmentStart[0]) * ratio,
+      segmentStart[1] + (segmentEnd[1] - segmentStart[1]) * ratio,
+    ]);
+  }
+  markers.push(path[path.length - 1]);
+  return markers;
 }
 
 function sliceRoadPath(
@@ -410,6 +456,24 @@ export function CampusMap({
   const [highlightRoadPath, setHighlightRoadPath] = useState<
     [number, number][] | null
   >(null);
+  const [guidanceRoadPath, setGuidanceRoadPath] = useState<
+    [number, number][] | null
+  >(null);
+
+  useEffect(() => {
+    if (!guidancePoints || guidancePoints.length < 2) {
+      setGuidanceRoadPath(null);
+      return;
+    }
+    let active = true;
+    setGuidanceRoadPath(guidancePoints);
+    loadWalkingPath(guidancePoints).then((path) => {
+      if (active) setGuidanceRoadPath(path ?? guidancePoints);
+    });
+    return () => {
+      active = false;
+    };
+  }, [guidancePoints]);
 
   useEffect(() => {
     if (!highlightPath || highlightPath.length < 2) {
@@ -438,6 +502,10 @@ export function CampusMap({
   }, [highlightPath, roadPath]);
 
   const renderedPath = roadPath ?? routePath;
+  const guidanceDots = useMemo(
+    () => samplePath(guidanceRoadPath ?? []),
+    [guidanceRoadPath],
+  );
   return (
     <div
       className="relative w-full overflow-hidden"
@@ -465,9 +533,13 @@ export function CampusMap({
         />
         <MapViewport
           points={
-            renderedPath.length > 1
-              ? renderedPath
-              : displayStops.map((stop) => [stop.lat, stop.lng])
+            guidancePoints?.length && highlightPath?.length
+              ? [...guidancePoints, ...highlightPath]
+              : guidancePoints?.length
+                ? guidancePoints
+                : renderedPath.length > 1
+                  ? renderedPath
+                  : displayStops.map((stop) => [stop.lat, stop.lng])
           }
           rotation={rotation}
           locked={Boolean(focusStopId)}
@@ -514,21 +586,19 @@ export function CampusMap({
             pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 6, opacity: 0.92 }}
           />
         )}
-        {guidancePoints &&
-          guidancePoints.length > 1 &&
-          guidancePoints.map((point, index) => (
-            <CircleMarker
-              key={`guidance-${index}`}
-              center={point}
-              radius={3.25}
-              pathOptions={{
-                color: "#7C3AED",
-                weight: 1,
-                fillColor: "#7C3AED",
-                fillOpacity: 0.9,
-              }}
-            />
-          ))}
+        {guidanceDots.map((point, index) => (
+          <CircleMarker
+            key={`guidance-${index}`}
+            center={point}
+            radius={3}
+            pathOptions={{
+              color: "white",
+              weight: 1.5,
+              fillColor: "#F59E0B",
+              fillOpacity: 1,
+            }}
+          />
+        ))}
         {displayStops.map((stop) => {
           const isHighlighted = stop.id === highlightStopId;
           const isRouteStop = routeStops.some(

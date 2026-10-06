@@ -137,6 +137,7 @@ export default function App() {
               className={`absolute inset-0 transition-opacity duration-200 ${tab === "track" ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"}`}
             >
               <TrackPage
+                isActive={tab === "track"}
                 gpsPosition={gps.position}
                 gpsError={gps.error}
                 userHeading={gps.heading}

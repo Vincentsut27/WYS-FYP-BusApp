@@ -74,7 +74,7 @@ export const ROUTES: Route[] = [
     stopIds: ["yiap", "circuitEastUp", "cwChuUp", "area39", "cwChuDown", "universityResidence15", "ucStaff", "chanChunHa", "shawDown", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "universityStation"],
   },
   {
-    id: "5", label: "5", description: "Upward", color: "#7C3AED",
+    id: "5", label: "5", description: "Upward", color: "#0891B2",
     operatingDays: "Mon – Fri (Teaching days only); Sat (Teaching days only)", serviceHours: "Mon–Fri 09:18 – 17:26; Sat 09:18 – 13:26", frequency: "Every 18, 22, 26 minutes",
     stopIds: ["chungChiTeaching", "sports", "shawHall", "fungKingHey", "unitedUp", "newAsia", "wuYeeSunUp", "shawUp", "cwChuDown"],
   },

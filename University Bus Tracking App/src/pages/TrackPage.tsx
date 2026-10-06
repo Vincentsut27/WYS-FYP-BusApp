@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
+import { useBusLocationSharing } from "../hooks/useBusLocationSharing";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
 import { useTripProgress } from "../hooks/useTripProgress";
 import {
@@ -12,6 +13,7 @@ import {
 import type { Route, Stop } from "../types/transit";
 
 export function TrackPage({
+  isActive = true,
   gpsPosition,
   gpsError,
   userHeading,
@@ -19,6 +21,7 @@ export function TrackPage({
   presetStartStopId,
   presetDestStopId,
 }: {
+  isActive?: boolean;
   gpsPosition: GeolocationPosition | null;
   gpsError: string | null;
   userHeading?: number | null;
@@ -46,6 +49,12 @@ export function TrackPage({
     body: string;
   } | null>(null);
   const [tripStarted, setTripStarted] = useState(false);
+  const [showStartPrompt, setShowStartPrompt] = useState(false);
+  const [shareTripProgress, setShareTripProgress] = useState(false);
+  const [anonymousToken, setAnonymousToken] = useState<string | null>(null);
+  const [tripGuidancePoints, setTripGuidancePoints] = useState<
+    [number, number][] | null
+  >(null);
   const [arrivalNotificationsEnabled, setArrivalNotificationsEnabled] =
     useState(false);
   const [notificationPermissionMessage, setNotificationPermissionMessage] =
@@ -74,11 +83,25 @@ export function TrackPage({
     tripStarted,
     tripStartStopIndex,
   );
+  const busLocationSharing = useBusLocationSharing(
+    shareTripProgress && tripStarted,
+    selectedRoute?.id,
+    anonymousToken,
+    gpsPosition,
+    userHeading ?? gpsPosition?.coords.heading ?? null,
+    tripProgress.progressMeters,
+  );
 
-  const endTrip = () => {
+  const endTrip = (
+    arrivalAlert: { title: string; body: string } | null = null,
+  ) => {
     setTripStarted(false);
+    setShareTripProgress(false);
+    setAnonymousToken(null);
+    setTripGuidancePoints(null);
     setTripStopIndex(null);
     setTripStartStopIndex(null);
+    setStopAlert(arrivalAlert);
     contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
   const requestArrivalNotifications = async () => {
@@ -248,22 +271,40 @@ export function TrackPage({
 
   const guidancePoints = useMemo<[number, number][] | null>(() => {
     if (!userPosition || !startStop) return null;
-    const distance = getDistance(
-      userPosition[0],
-      userPosition[1],
-      startStop.lat,
-      startStop.lng,
-    );
-    if (distance < 25) return null;
-    const stepCount = 12;
-    return Array.from({ length: stepCount + 1 }, (_, index) => {
-      const ratio = index / stepCount;
-      return [
-        userPosition[0] + (startStop.lat - userPosition[0]) * ratio,
-        userPosition[1] + (startStop.lng - userPosition[1]) * ratio,
-      ] as [number, number];
-    });
+    return [userPosition, [startStop.lat, startStop.lng]];
   }, [userPosition, startStop]);
+
+  const startTrip = () => {
+    if (!selectedRoute) {
+      setShowStartPrompt(false);
+      setShowRoutePicker(true);
+      return;
+    }
+    const selectedStartIndex =
+      startStopRouteIndex ??
+      routeStops.findIndex((stop) => stop.id === startStop?.id);
+    const initialStopIndex = selectedStartIndex >= 0 ? selectedStartIndex : 0;
+    setAnonymousToken(
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    setShareTripProgress(true);
+    setTripGuidancePoints(guidancePoints);
+    setTripStartStopIndex(initialStopIndex);
+    setTripStopIndex(initialStopIndex);
+    setTripStarted(true);
+    setShowStartPrompt(false);
+  };
+
+  useEffect(() => {
+    if (!isActive || tripStarted) {
+      setShowStartPrompt(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowStartPrompt(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [isActive, tripStarted]);
 
   const destinationRouteIndex =
     destStopRouteIndex ??
@@ -321,6 +362,41 @@ export function TrackPage({
   ]);
 
   useEffect(() => {
+    if (
+      !tripStarted ||
+      !destStop ||
+      destinationRouteIndex < 0 ||
+      !tripProgress.confident ||
+      tripProgress.currentStopIndex === null ||
+      tripProgress.currentStopIndex <= destinationRouteIndex
+    )
+      return;
+
+    const arrivalAlert = {
+      title: "You've arrived",
+      body: `Your trip to ${destStop.name} has ended.`,
+    };
+    endTrip(arrivalAlert);
+    approachingAlertStop.current = destinationAlertKey;
+    if (arrivalNotificationsEnabled) playArrivalTone();
+    if (
+      arrivalNotificationsEnabled &&
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ) {
+      new Notification(arrivalAlert.title, { body: arrivalAlert.body });
+    }
+  }, [
+    tripStarted,
+    destStop,
+    destinationRouteIndex,
+    destinationAlertKey,
+    tripProgress.confident,
+    tripProgress.currentStopIndex,
+    arrivalNotificationsEnabled,
+  ]);
+
+  useEffect(() => {
     approachingAlertStop.current = null;
     setStopAlert(null);
     setArrivalNotificationsEnabled(false);
@@ -345,6 +421,9 @@ export function TrackPage({
     setDestStop(endIndex >= 0 ? (STOPS[endId] ?? null) : null);
     setDestStopRouteIndex(endIndex >= 0 ? endIndex : null);
     setTripStarted(false);
+    setShareTripProgress(false);
+    setAnonymousToken(null);
+    setTripGuidancePoints(null);
     setTripStopIndex(null);
     setTripStartStopIndex(null);
     setShowRoutePicker(false);
@@ -357,7 +436,6 @@ export function TrackPage({
   useEffect(() => {
     if (tripStarted) return;
     approachingAlertStop.current = null;
-    setStopAlert(null);
   }, [tripStarted]);
 
   if (showRoutePicker) {
@@ -393,6 +471,9 @@ export function TrackPage({
                 setDestStop(null);
                 setDestStopRouteIndex(null);
                 setTripStarted(false);
+                setShareTripProgress(false);
+                setAnonymousToken(null);
+                setTripGuidancePoints(null);
                 setTripStopIndex(null);
                 setTripStartStopIndex(null);
                 setShowRoutePicker(false);
@@ -627,7 +708,9 @@ export function TrackPage({
             }}
           >
             <div
-              className={`w-1.5 h-1.5 rounded-full ${trackingPosition ? "bg-green-500" : "bg-purple-400"}`}
+              className={`w-1.5 h-1.5 rounded-full ${
+                trackingPosition ? "bg-green-500" : "bg-purple-400"
+              }`}
             />
             {trackingPosition ? "Tracking" : "Not tracking"}
           </div>
@@ -666,15 +749,20 @@ export function TrackPage({
                 userPos={userPosition}
                 highlightPath={highlightPath}
                 guidancePoints={
-                  tripStarted ? undefined : (guidancePoints ?? undefined)
+                  (tripStarted
+                    ? (tripGuidancePoints ?? guidancePoints)
+                    : guidancePoints) ?? undefined
                 }
-                dimRoute={tripStarted}
                 tripProgressMeters={
                   tripStarted ? tripProgress.progressMeters : null
                 }
                 tripStartStopIndex={tripStartStopIndex ?? 0}
                 highlightStopId={activeStop?.id}
-                focusStopId={activeStop?.id ?? destStop?.id ?? undefined}
+                focusStopId={
+                  userPosition && guidancePoints
+                    ? undefined
+                    : (activeStop?.id ?? destStop?.id ?? undefined)
+                }
                 height={tripStarted ? "clamp(300px, 48svh, 430px)" : 300}
                 rotation={mapRotation}
                 userHeading={userHeading ?? 0}
@@ -922,14 +1010,8 @@ export function TrackPage({
           {selectedRoute && (
             <button
               onClick={() => {
-                if (tripStarted) {
-                  endTrip();
-                } else {
-                  const initialStopIndex = startIndex >= 0 ? startIndex : 0;
-                  setTripStartStopIndex(initialStopIndex);
-                  setTripStopIndex(initialStopIndex);
-                  setTripStarted(true);
-                }
+                if (tripStarted) endTrip();
+                else startTrip();
               }}
               className="w-full py-3 rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 text-white"
               style={{ background: tripStarted ? "#DC2626" : "var(--navy)" }}
@@ -939,6 +1021,73 @@ export function TrackPage({
             </button>
           )}
         </div>
+        {selectedRoute && tripStarted && (
+          <div className="mx-3 mt-2 rounded-xl border bg-white px-3 py-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={shareTripProgress}
+              onClick={() => setShareTripProgress((enabled) => !enabled)}
+              className="flex w-full items-center justify-between gap-3 text-left"
+            >
+              <span>
+                <span
+                  className="block text-sm font-semibold"
+                  style={{ color: "var(--text)" }}
+                >
+                  Anonymous location sharing
+                </span>
+                <span
+                  className="mt-0.5 block text-xs"
+                  style={{ color: "var(--muted)" }}
+                >
+                  {!shareTripProgress
+                    ? "Location sharing is paused for this trip."
+                    : busLocationSharing.status === "unconfigured"
+                      ? "Supabase is not configured, so your location is not being shared."
+                      : busLocationSharing.status === "error"
+                        ? "Location sharing failed. Your latest position was not shared."
+                        : "While tracking, your location is shared anonymously to improve arrival times for other students."}
+                </span>
+              </span>
+              <span
+                className="relative h-6 w-11 flex-shrink-0 rounded-full transition-colors"
+                style={{
+                  background: shareTripProgress ? "#16A34A" : "#CBD5E1",
+                }}
+              >
+                <span
+                  className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform"
+                  style={{
+                    transform: shareTripProgress
+                      ? "translateX(20px)"
+                      : undefined,
+                  }}
+                />
+              </span>
+            </button>
+            {shareTripProgress && (
+              <div
+                className="mt-2 text-xs"
+                style={{
+                  color:
+                    busLocationSharing.status === "error"
+                      ? "#B91C1C"
+                      : "var(--muted)",
+                }}
+                role="status"
+              >
+                {busLocationSharing.status === "sharing"
+                  ? "Trip progress is being shared."
+                  : busLocationSharing.status === "unconfigured"
+                    ? busLocationSharing.error
+                    : busLocationSharing.status === "error"
+                      ? busLocationSharing.error
+                      : "Waiting for an accurate GPS route match…"}
+              </div>
+            )}
+          </div>
+        )}
         {gpsError && (
           <div
             className="mx-3 mt-2 px-4 py-2 rounded-xl text-xs text-center"
@@ -950,9 +1099,54 @@ export function TrackPage({
         <div className="h-8" />
       </div>
 
-      {stopAlert && (
+      {showStartPrompt && isActive && !tripStarted && !showRoutePicker && (
         <div
           className="absolute inset-0 z-[2000] flex items-center justify-center p-5"
+          style={{ background: "rgba(15,23,42,0.45)" }}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="start-trip-prompt-title"
+          >
+            <div
+              className="text-lg font-bold"
+              id="start-trip-prompt-title"
+              style={{ color: "var(--text)" }}
+            >
+              Ready to start your trip?
+            </div>
+            <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+              {destStop
+                ? `Your destination is ${destStop.name}. Start now for live trip tracking and an arrival alert.`
+                : selectedRoute
+                  ? "You can start without choosing a target stop. Adding one later enhances route guidance and arrival alerts."
+                  : "Choose a bus route first. A target stop is optional, but setting one enhances route guidance and arrival alerts."}
+            </p>
+            <button
+              type="button"
+              onClick={startTrip}
+              className="mt-5 w-full rounded-xl py-3 text-sm font-semibold text-white"
+              style={{ background: "var(--navy)" }}
+            >
+              {selectedRoute ? "Start Trip" : "Choose a route"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowStartPrompt(false)}
+              className="mt-2 w-full rounded-xl border py-2.5 text-sm font-semibold"
+              style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+      {stopAlert && (
+        <div
+          className="absolute inset-0 z-[2100] flex items-center justify-center p-5"
           style={{ background: "rgba(15,23,42,0.45)" }}
         >
           <div className="w-full max-w-xs rounded-3xl bg-white p-5 shadow-2xl">

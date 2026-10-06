@@ -1,14 +1,95 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
+import { useLiveBusEta } from "../hooks/useLiveBusEta";
+import { useRouteGeometry } from "../hooks/useRouteGeometry";
 import {
   getArrivals,
   getDistance,
   getPhysicalStops,
   sameStopLocation,
 } from "../lib/transit";
-import type { Stop } from "../types/transit";
+import type { Route, Stop } from "../types/transit";
+
+function LiveRouteEstimate({
+  route,
+  selectedStop,
+  fallbackMinutes,
+}: {
+  route: Route;
+  selectedStop: Stop;
+  fallbackMinutes: number[];
+}) {
+  const routeStops = route.stopIds.map((id) => STOPS[id]).filter(Boolean);
+  const routePoints = routeStops.map(
+    (stop) => [stop.lat, stop.lng] as [number, number],
+  );
+  const routeGeometry = useRouteGeometry(route.id, routePoints);
+  const destinationProgressMeters = useMemo(
+    () =>
+      routeGeometry
+        ? route.stopIds.flatMap((stopId, index) => {
+            if (!sameStopLocation(STOPS[stopId], selectedStop)) return [];
+            return [
+              routeGeometry.segments[index]?.startDistanceMeters ??
+                routeGeometry.totalDistanceMeters,
+            ];
+          })
+        : [],
+    [route.stopIds, routeGeometry, selectedStop],
+  );
+  const estimate = useLiveBusEta(
+    route.id,
+    destinationProgressMeters,
+    routeGeometry,
+  );
+  const hasLiveEta =
+    estimate.status === "ready" && estimate.etaMinutes !== null;
+
+  return (
+    <div
+      className="rounded-xl px-3 py-2 text-center"
+      style={{ background: "var(--bg)" }}
+    >
+      <div
+        className="text-[10px] font-semibold uppercase"
+        style={{ color: "var(--muted)" }}
+      >
+        Community live ETA
+      </div>
+      {hasLiveEta ? (
+        <div className="text-lg font-extrabold" style={{ color: route.color }}>
+          Live · {estimate.etaMinutes} min
+        </div>
+      ) : (
+        <div className="mt-1 flex gap-2">
+          {fallbackMinutes.map((minutes, index) => (
+            <div
+              key={`${minutes}-${index}`}
+              className="flex-1 rounded-lg py-1 text-center text-sm font-bold"
+              style={{
+                background: index === 0 ? route.color : "white",
+                color: index === 0 ? "white" : route.color,
+              }}
+            >
+              {minutes} min
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+        {hasLiveEta
+          ? `Crowd-sourced · ${estimate.reportsCount} active ${estimate.reportsCount === 1 ? "rider" : "riders"}`
+          : estimate.status === "error"
+            ? "Illustrative estimate · live data unavailable"
+            : estimate.status === "unconfigured"
+              ? "Illustrative estimate · live ETA not configured"
+              : "Illustrative estimates · waiting for live data"}
+      </div>
+    </div>
+  );
+}
 
 export function ArrivalPage({
   gpsPosition,
@@ -95,8 +176,8 @@ export function ArrivalPage({
                   Buses arriving at this stop
                 </span>
                 <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-                  Arrival minutes are illustrative estimates, not live or
-                  official schedule times.
+                  Crowd-sourced estimates use opt-in rider GPS. Illustrative
+                  estimates are shown until live reports are available.
                 </p>
               </div>
               {stopRoutes.map((route) => {
@@ -139,37 +220,11 @@ export function ArrivalPage({
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-3">
-                      {arrivals.map((minutes, index) => (
-                        <div
-                          key={index}
-                          className="flex-1 rounded-xl py-2 text-center"
-                          style={{
-                            background: index === 0 ? route.color : "var(--bg)",
-                          }}
-                        >
-                          <div
-                            className="text-lg font-extrabold"
-                            style={{
-                              color: index === 0 ? "white" : route.color,
-                            }}
-                          >
-                            {minutes}
-                          </div>
-                          <div
-                            className="text-[10px] font-medium"
-                            style={{
-                              color:
-                                index === 0
-                                  ? "rgba(255,255,255,0.8)"
-                                  : "var(--muted)",
-                            }}
-                          >
-                            mins
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <LiveRouteEstimate
+                      route={route}
+                      selectedStop={selectedStop}
+                      fallbackMinutes={arrivals}
+                    />
                   </div>
                 );
               })}

@@ -22,6 +22,7 @@ interface RoadRoute {
 
 const routeGeometryCache = new Map<string, Promise<RouteGeometry>>();
 const roadRouteCache = new Map<string, Promise<RoadRoute | null>>();
+const walkingRouteCache = new Map<string, Promise<Coordinate[] | null>>();
 
 export function distanceBetweenCoordinates(
   first: Coordinate,
@@ -126,6 +127,43 @@ export async function loadRoadPath(stops: Coordinate[]) {
   if (stops.length < 2) return null;
   const route = await loadRoadRoute(stops);
   return route?.points ?? null;
+}
+
+export function loadWalkingPath(stops: Coordinate[]) {
+  if (stops.length < 2) return Promise.resolve(null);
+  const coordinatesKey = getCoordinatesKey(stops);
+  const cached = walkingRouteCache.get(coordinatesKey);
+  if (cached) return cached;
+
+  const request = (async (): Promise<Coordinate[] | null> => {
+    const coordinates = stops
+      .map(([latitude, longitude]) => `${longitude},${latitude}`)
+      .join(";");
+    const response = await fetch(
+      `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=false`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!response.ok) return null;
+    const data: {
+      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+    } = await response.json();
+    const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
+    if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) {
+      return null;
+    }
+    const roadPath = routeCoordinates.map(
+      ([longitude, latitude]) => [latitude, longitude] as Coordinate,
+    );
+    return [stops[0], ...roadPath, stops[stops.length - 1]];
+  })().catch(() => null);
+
+  walkingRouteCache.set(coordinatesKey, request);
+  void request.then((path) => {
+    if (!path && walkingRouteCache.get(coordinatesKey) === request) {
+      walkingRouteCache.delete(coordinatesKey);
+    }
+  });
+  return request;
 }
 
 async function mapWithConcurrency<T, U>(
