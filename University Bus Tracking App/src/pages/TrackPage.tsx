@@ -10,6 +10,7 @@ import {
   getDistance,
   playArrivalTone,
 } from "../lib/transit";
+import { supabase } from "../lib/supabase";
 import type { Route, Stop } from "../types/transit";
 
 export function TrackPage({
@@ -35,6 +36,7 @@ export function TrackPage({
     null,
   );
   const [startStop, setStartStop] = useState<Stop | null>(null);
+  const [startGuidanceDismissed, setStartGuidanceDismissed] = useState(false);
   const [startStopRouteIndex, setStartStopRouteIndex] = useState<number | null>(
     null,
   );
@@ -50,21 +52,28 @@ export function TrackPage({
   } | null>(null);
   const [tripStarted, setTripStarted] = useState(false);
   const [showStartPrompt, setShowStartPrompt] = useState(false);
+  const [arrivalNotificationsEnabled, setArrivalNotificationsEnabled] =
+    useState(false);
+  const [notificationPermissionMessage, setNotificationPermissionMessage] =
+    useState<string | null>(null);
+  const [showTripSurvey, setShowTripSurvey] = useState(false);
+  const [surveyExpanded, setSurveyExpanded] = useState(false);
+  const [surveyRating, setSurveyRating] = useState<number | null>(null);
+  const [surveyExperience, setSurveyExperience] = useState("");
+  const [surveySuggestion, setSurveySuggestion] = useState("");
+  const [surveyStatus, setSurveyStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [surveyError, setSurveyError] = useState<string | null>(null);
+  const [surveyPendingAfterArrival, setSurveyPendingAfterArrival] = useState(false);
   const [shareTripProgress, setShareTripProgress] = useState(false);
   const [anonymousToken, setAnonymousToken] = useState<string | null>(null);
   const [tripGuidancePoints, setTripGuidancePoints] = useState<
     [number, number][] | null
   >(null);
-  const [arrivalNotificationsEnabled, setArrivalNotificationsEnabled] =
-    useState(false);
-  const [notificationPermissionMessage, setNotificationPermissionMessage] =
-    useState<string | null>(null);
   const [tripStopIndex, setTripStopIndex] = useState<number | null>(null);
   const [tripStartStopIndex, setTripStartStopIndex] = useState<number | null>(
     null,
   );
   const [mapRotation, setMapRotation] = useState(0);
-  const approachingAlertStop = useRef<string | null>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const routeStops = selectedRoute
     ? selectedRoute.stopIds.map((id) => STOPS[id]).filter(Boolean)
@@ -102,8 +111,17 @@ export function TrackPage({
     setTripStopIndex(null);
     setTripStartStopIndex(null);
     setStopAlert(arrivalAlert);
+    setSurveyRating(null);
+    setSurveyExperience("");
+    setSurveySuggestion("");
+    setSurveyExpanded(false);
+    setSurveyStatus("idle");
+    setSurveyError(null);
+    setSurveyPendingAfterArrival(Boolean(arrivalAlert));
+    setShowTripSurvey(!arrivalAlert);
     contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
+
   const requestArrivalNotifications = async () => {
     setNotificationPermissionMessage(null);
     if (!window.isSecureContext) {
@@ -145,6 +163,29 @@ export function TrackPage({
       setNotificationPermissionMessage(
         "Unable to request notification permission.",
       );
+    }
+  };
+
+  const submitTripSurvey = async () => {
+    if (!supabase || surveyRating === null) {
+      setSurveyError("Feedback is temporarily unavailable. Please try again later.");
+      setSurveyStatus("error");
+      return;
+    }
+    setSurveyStatus("submitting");
+    setSurveyError(null);
+    try {
+      const { error } = await supabase.from("trip_feedback").insert({
+        route_id: selectedRoute?.id ?? null,
+        rating: surveyRating,
+        experience: surveyExpanded ? surveyExperience || null : null,
+        suggestion: surveyExpanded ? surveySuggestion.trim() || null : null,
+      });
+      if (error) throw error;
+      setSurveyStatus("success");
+    } catch {
+      setSurveyStatus("error");
+      setSurveyError("Could not send feedback. Please try again.");
     }
   };
   useEffect(() => {
@@ -269,9 +310,16 @@ export function TrackPage({
       : null;
 
   const guidancePoints = useMemo<[number, number][] | null>(() => {
-    if (!userPosition || !startStop) return null;
+    if (!userPosition || !startStop || startGuidanceDismissed) return null;
     return [userPosition, [startStop.lat, startStop.lng]];
-  }, [userPosition, startStop]);
+  }, [userPosition, startStop, startGuidanceDismissed]);
+
+  useEffect(() => {
+    if (!userPosition || !startStop || startGuidanceDismissed) return;
+    if (getDistance(userPosition[0], userPosition[1], startStop.lat, startStop.lng) <= 5) {
+      setStartGuidanceDismissed(true);
+    }
+  }, [userPosition, startStop, startGuidanceDismissed]);
 
   const startTrip = () => {
     if (!selectedRoute) {
@@ -297,69 +345,17 @@ export function TrackPage({
   };
 
   useEffect(() => {
-    if (!isActive || tripStarted) {
+    if (!isActive || tripStarted || showTripSurvey || stopAlert) {
       setShowStartPrompt(false);
       return;
     }
     const timer = window.setTimeout(() => setShowStartPrompt(true), 5000);
     return () => window.clearTimeout(timer);
-  }, [isActive, tripStarted]);
+  }, [isActive, tripStarted, showTripSurvey, stopAlert]);
 
   const destinationRouteIndex =
     destStopRouteIndex ??
     (destStop ? routeStops.findIndex((stop) => stop.id === destStop.id) : -1);
-  const destinationAlertKey = destStop
-    ? `${destStop.id}:${destinationRouteIndex}`
-    : null;
-  const journeySegmentCount =
-    tripStartStopIndex !== null
-      ? destinationRouteIndex - tripStartStopIndex
-      : 0;
-  const midpointSegmentPosition =
-    tripStartStopIndex !== null
-      ? tripStartStopIndex + journeySegmentCount / 2
-      : -1;
-  const midpointSegmentIndex = Math.floor(midpointSegmentPosition);
-  const midpointSegmentFraction =
-    midpointSegmentPosition - midpointSegmentIndex;
-  const midpointSegment = routeGeometry?.segments[midpointSegmentIndex];
-  const midpointProgressMeters =
-    journeySegmentCount > 0 && midpointSegment
-      ? midpointSegment.startDistanceMeters +
-        midpointSegment.lengthMeters * midpointSegmentFraction
-      : null;
-
-  useEffect(() => {
-    if (
-      !tripStarted ||
-      !arrivalNotificationsEnabled ||
-      !destStop ||
-      !destinationAlertKey ||
-      midpointProgressMeters === null ||
-      tripProgress.progressMeters === null ||
-      tripProgress.progressMeters < midpointProgressMeters ||
-      approachingAlertStop.current === destinationAlertKey
-    )
-      return;
-    approachingAlertStop.current = destinationAlertKey;
-    const notification = {
-      title: "Approaching your stop",
-      body: `You are about halfway to ${destStop.name}.`,
-    };
-    setStopAlert(notification);
-    playArrivalTone();
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(notification.title, { body: notification.body });
-    }
-  }, [
-    tripStarted,
-    arrivalNotificationsEnabled,
-    destStop,
-    destinationAlertKey,
-    midpointProgressMeters,
-    tripProgress.progressMeters,
-  ]);
-
   useEffect(() => {
     if (
       !tripStarted ||
@@ -376,7 +372,6 @@ export function TrackPage({
       body: `Your trip to ${destStop.name} has ended.`,
     };
     endTrip(arrivalAlert);
-    approachingAlertStop.current = destinationAlertKey;
     if (arrivalNotificationsEnabled) playArrivalTone();
     if (
       arrivalNotificationsEnabled &&
@@ -389,14 +384,12 @@ export function TrackPage({
     tripStarted,
     destStop,
     destinationRouteIndex,
-    destinationAlertKey,
     tripProgress.confident,
     tripProgress.currentStopIndex,
     arrivalNotificationsEnabled,
   ]);
 
   useEffect(() => {
-    approachingAlertStop.current = null;
     setStopAlert(null);
     setArrivalNotificationsEnabled(false);
     setNotificationPermissionMessage(null);
@@ -415,6 +408,7 @@ export function TrackPage({
 
     setSelectedRoute(presetRoute);
     setStartStop(STOPS[startId] ?? null);
+    setStartGuidanceDismissed(false);
     setStartStopRouteIndex(startIndex >= 0 ? startIndex : null);
     setStartStopManuallySet(true);
     setDestStop(endIndex >= 0 ? (STOPS[endId] ?? null) : null);
@@ -431,11 +425,6 @@ export function TrackPage({
   }, [presetRouteId, presetStartStopId, presetDestStopId]);
 
   useEffect(() => setMapRotation(0), [selectedRoute?.id]);
-
-  useEffect(() => {
-    if (tripStarted) return;
-    approachingAlertStop.current = null;
-  }, [tripStarted]);
 
   if (showRoutePicker) {
     return (
@@ -466,6 +455,7 @@ export function TrackPage({
                 setSelectedRoute(route);
                 setStartStop(null);
                 setStartStopRouteIndex(null);
+                setStartGuidanceDismissed(false);
                 setStartStopManuallySet(false);
                 setDestStop(null);
                 setDestStopRouteIndex(null);
@@ -633,6 +623,7 @@ export function TrackPage({
               onClick={() => {
                 setStartStop(stop);
                 setStartStopRouteIndex(index);
+                setStartGuidanceDismissed(false);
                 setStartStopManuallySet(true);
                 setDestStop(null);
                 setDestStopRouteIndex(null);
@@ -715,7 +706,7 @@ export function TrackPage({
           </div>
         </div>
         <p className="text-[10px]" style={{ color: "var(--muted)" }}>
-          Select a route and track your position — get alerted before your stop.
+          Select a route and track your position. Choose a destination to end the trip automatically.
         </p>
       </div>
 
@@ -952,8 +943,8 @@ export function TrackPage({
                   </div>
                   <div className="text-xs" style={{ color: "var(--muted)" }}>
                     {destStop
-                      ? "You'll be alerted when approaching"
-                      : "Optional: get alerted before your stop"}
+                      ? "Trip ends automatically at this stop"
+                      : "Optional: choose where to end the trip"}
                   </div>
                 </div>
                 <Icon
@@ -965,6 +956,7 @@ export function TrackPage({
               {destStop && (
                 <div className="px-4 pb-3">
                   <button
+                    type="button"
                     onClick={() => {
                       if (arrivalNotificationsEnabled) {
                         setArrivalNotificationsEnabled(false);
@@ -973,6 +965,7 @@ export function TrackPage({
                         void requestArrivalNotifications();
                       }
                     }}
+                    aria-pressed={arrivalNotificationsEnabled}
                     className="w-full flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold"
                     style={{
                       borderColor: arrivalNotificationsEnabled
@@ -989,7 +982,7 @@ export function TrackPage({
                     <Icon path={ICONS.alert} size={16} />
                     {arrivalNotificationsEnabled
                       ? "Arrival notification enabled"
-                      : "Notify me halfway to my stop"}
+                      : "Notify me when I arrive"}
                   </button>
                   {notificationPermissionMessage && (
                     <div
@@ -1098,7 +1091,12 @@ export function TrackPage({
         <div className="h-8" />
       </div>
 
-      {showStartPrompt && isActive && !tripStarted && !showRoutePicker && (
+      {showStartPrompt &&
+        isActive &&
+        !tripStarted &&
+        !showRoutePicker &&
+        !showTripSurvey &&
+        !stopAlert && (
         <div
           className="absolute inset-0 z-[2000] flex items-center justify-center p-5"
           style={{ background: "rgba(15,23,42,0.45)" }}
@@ -1168,12 +1166,164 @@ export function TrackPage({
               {stopAlert.body}
             </div>
             <button
-              onClick={() => setStopAlert(null)}
+              onClick={() => {
+                setStopAlert(null);
+                if (surveyPendingAfterArrival) {
+                  setSurveyPendingAfterArrival(false);
+                  setShowTripSurvey(true);
+                }
+              }}
               className="mt-5 w-full rounded-2xl py-3 text-sm font-semibold text-white"
               style={{ background: "var(--purple)" }}
             >
               Got it
             </button>
+          </div>
+        </div>
+      )}
+      {showTripSurvey && (
+        <div
+          className="absolute inset-0 z-[2200] flex items-center justify-center p-5"
+          style={{ background: "rgba(15,23,42,0.48)" }}
+        >
+          <div
+            className="max-h-full w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="trip-survey-title"
+          >
+            {surveyStatus === "success" ? (
+              <>
+                <h2
+                  id="trip-survey-title"
+                  className="text-lg font-bold"
+                  style={{ color: "var(--text)" }}
+                >
+                  Thanks for your feedback
+                </h2>
+                <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+                  Your response helps us improve the bus app.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowTripSurvey(false)}
+                  className="mt-5 w-full rounded-xl py-3 text-sm font-semibold text-white"
+                  style={{ background: "var(--navy)" }}
+                >
+                  Done
+                </button>
+              </>
+            ) : (
+              <>
+                <h2
+                  id="trip-survey-title"
+                  className="text-lg font-bold"
+                  style={{ color: "var(--text)" }}
+                >
+                  How was your trip?
+                </h2>
+                <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
+                  Rate your experience from 1 to 5 stars.
+                </p>
+                <div
+                  className="mt-4 flex justify-center gap-2"
+                  role="group"
+                  aria-label="Trip rating"
+                >
+                  {[1, 2, 3, 4, 5].map((rating) => (
+                    <button
+                      key={rating}
+                      type="button"
+                      onClick={() => setSurveyRating(rating)}
+                      aria-label={`${rating} ${rating === 1 ? "star" : "stars"}`}
+                      aria-pressed={surveyRating === rating}
+                      className="h-11 w-11 text-3xl leading-none"
+                      style={{
+                        color:
+                          surveyRating !== null && rating <= surveyRating
+                            ? "#F59E0B"
+                            : "#CBD5E1",
+                      }}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSurveyExpanded((expanded) => !expanded)}
+                  className="mt-4 w-full text-left text-sm font-semibold"
+                  style={{ color: "var(--purple)" }}
+                  aria-expanded={surveyExpanded}
+                >
+                  {surveyExpanded
+                    ? "Hide extra feedback"
+                    : "Add a short comment (optional)"}
+                </button>
+                {surveyExpanded && (
+                  <div className="mt-3 space-y-3">
+                    <label
+                      className="block text-sm font-medium"
+                      style={{ color: "var(--text)" }}
+                    >
+                      How was the experience?
+                      <textarea
+                        value={surveyExperience}
+                        onChange={(event) =>
+                          setSurveyExperience(event.target.value.slice(0, 280))
+                        }
+                        maxLength={280}
+                        rows={2}
+                        className="mt-1 w-full resize-none rounded-lg border p-2 text-sm font-normal"
+                        style={{ borderColor: "var(--border)" }}
+                      />
+                    </label>
+                    <label
+                      className="block text-sm font-medium"
+                      style={{ color: "var(--text)" }}
+                    >
+                      Any suggestions for the app?
+                      <textarea
+                        value={surveySuggestion}
+                        onChange={(event) =>
+                          setSurveySuggestion(event.target.value.slice(0, 280))
+                        }
+                        maxLength={280}
+                        rows={2}
+                        className="mt-1 w-full resize-none rounded-lg border p-2 text-sm font-normal"
+                        style={{ borderColor: "var(--border)" }}
+                      />
+                    </label>
+                  </div>
+                )}
+                {surveyError && (
+                  <p
+                    className="mt-3 text-sm"
+                    style={{ color: "#B91C1C" }}
+                    role="alert"
+                  >
+                    {surveyError}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  disabled={surveyRating === null || surveyStatus === "submitting"}
+                  onClick={() => void submitTripSurvey()}
+                  className="mt-5 w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ background: "var(--navy)" }}
+                >
+                  {surveyStatus === "submitting" ? "Sending…" : "Send feedback"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTripSurvey(false)}
+                  className="mt-2 w-full rounded-xl border py-2.5 text-sm font-semibold"
+                  style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+                >
+                  Skip
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}

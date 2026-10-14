@@ -589,6 +589,7 @@ export function CampusMap({
         {guidanceDots.map((point, index) => (
           <CircleMarker
             key={`guidance-${index}`}
+            pane="markerPane"
             center={point}
             radius={3}
             pathOptions={{

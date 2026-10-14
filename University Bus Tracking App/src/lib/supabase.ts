@@ -12,6 +12,15 @@ export type LocationReport = {
   reported_at: string;
 };
 
+export type TripFeedback = {
+  id: string;
+  route_id: string | null;
+  rating: number;
+  experience: string | null;
+  suggestion: string | null;
+  submitted_at: string;
+};
+
 type Database = {
   public: {
     Tables: {
@@ -22,6 +31,15 @@ type Database = {
           reported_at?: string;
         };
         Update: Partial<LocationReport>;
+        Relationships: [];
+      };
+      trip_feedback: {
+        Row: TripFeedback;
+        Insert: Omit<TripFeedback, "id" | "submitted_at"> & {
+          id?: string;
+          submitted_at?: string;
+        };
+        Update: Partial<TripFeedback>;
         Relationships: [];
       };
     };
