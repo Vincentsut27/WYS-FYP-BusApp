@@ -509,7 +509,7 @@ export function CampusMap({
   return (
     <div
       className="relative w-full overflow-hidden"
-      style={{ height, touchAction: enableTouchRotate ? "pan-y" : undefined }}
+      style={{ height, touchAction: enableTouchRotate ? "none" : undefined }}
     >
       <MapContainer
         center={CAMPUS_CENTER}

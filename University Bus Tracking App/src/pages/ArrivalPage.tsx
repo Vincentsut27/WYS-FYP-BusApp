@@ -3,13 +3,13 @@ import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
 import { useLiveBusEta } from "../hooks/useLiveBusEta";
+import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
 import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
 import {
   getDistance,
   getPhysicalStops,
   getRouteArrivalMinutes,
-  isRouteOperatingNow,
   sameStopLocation,
 } from "../lib/transit";
 import type { Route, Stop } from "../types/transit";
@@ -21,7 +21,7 @@ function LiveRouteEstimate({
 }: {
   route: Route;
   selectedStop: Stop;
-  fallbackMinutes: number[];
+  fallbackMinutes: [number, number | null] | null;
 }) {
   const routeStops = route.stopIds.map((id) => STOPS[id]).filter(Boolean);
   const routePoints = routeStops.map(
@@ -58,13 +58,13 @@ function LiveRouteEstimate({
         className="text-[10px] font-semibold uppercase"
         style={{ color: "var(--muted)" }}
       >
-        {hasLiveEta ? "Live ETA" : "Trip time from start"}
+        {hasLiveEta ? "Live ETA" : "Scheduled arrival"}
       </div>
       {hasLiveEta ? (
         <div className="text-lg font-extrabold" style={{ color: route.color }}>
           Live · {estimate.etaMinutes} min
         </div>
-      ) : (
+      ) : fallbackMinutes ? (
         <div className="mt-1 flex gap-2">
           {fallbackMinutes.map((minutes, index) => (
             <div
@@ -75,19 +75,23 @@ function LiveRouteEstimate({
                 color: index === 0 ? "white" : route.color,
               }}
             >
-              {minutes} min
+              {minutes === null ? "--" : `${minutes} min`}
             </div>
           ))}
+        </div>
+      ) : (
+        <div className="mt-1 text-sm font-semibold" style={{ color: "var(--muted)" }}>
+          Beyond service hours
         </div>
       )}
       <div className="text-[10px]" style={{ color: "var(--muted)" }}>
         {hasLiveEta
           ? `${estimate.reportsCount} live ${estimate.reportsCount === 1 ? "report" : "reports"}`
           : estimate.status === "error"
-            ? "Live ETA unavailable · showing route time"
+            ? "Live ETA unavailable · showing schedule"
             : estimate.status === "unconfigured"
-              ? "Live ETA not configured · showing route time"
-              : "Approximate route travel time"}
+              ? "Live ETA not configured · showing schedule"
+              : "Schedule countdown; actual bus timing may vary"}
       </div>
     </div>
   );
@@ -98,7 +102,7 @@ function IllustrativeRouteEstimate({
   minutes,
 }: {
   route: Route;
-  minutes: number[];
+  minutes: [number, number | null] | null;
 }) {
   return (
     <div
@@ -109,24 +113,30 @@ function IllustrativeRouteEstimate({
         className="text-[10px] font-semibold uppercase"
         style={{ color: "var(--muted)" }}
       >
-        Trip time from start
+        Scheduled arrival
       </div>
-      <div className="mt-1 flex gap-2">
-        {minutes.map((value, index) => (
-          <div
-            key={`${value}-${index}`}
-            className="flex-1 rounded-lg py-1 text-center text-sm font-bold"
-            style={{
-              background: index === 0 ? route.color : "white",
-              color: index === 0 ? "white" : route.color,
-            }}
-          >
-            {value} min
-          </div>
-        ))}
-      </div>
+      {minutes ? (
+        <div className="mt-1 flex gap-2">
+          {minutes.map((value, index) => (
+            <div
+              key={`${value}-${index}`}
+              className="flex-1 rounded-lg py-1 text-center text-sm font-bold"
+              style={{
+                background: index === 0 ? route.color : "white",
+                color: index === 0 ? "white" : route.color,
+              }}
+            >
+              {value === null ? "--" : `${value} min`}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-1 text-sm font-semibold" style={{ color: "var(--muted)" }}>
+          Beyond service hours
+        </div>
+      )}
       <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-        Approximate route travel time
+        Schedule countdown; actual bus timing may vary
       </div>
     </div>
   );
@@ -145,6 +155,7 @@ export function ArrivalPage({
 }) {
   const [subTab, setSubTab] = useState<"nearby" | "stops">("nearby");
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
+  const currentTime = useCurrentMinute();
   const userPos: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
@@ -165,9 +176,6 @@ export function ArrivalPage({
       route.stopIds.some((stopId) =>
         sameStopLocation(STOPS[stopId], selectedStop),
       ),
-    );
-    const stopRoutes = servingRoutes.filter((route) =>
-      isRouteOperatingNow(route),
     );
     return (
       <div className="flex flex-col h-full" style={{ background: "var(--bg)" }}>
@@ -190,7 +198,7 @@ export function ArrivalPage({
               {selectedStop.name}
             </div>
             <div className="text-xs" style={{ color: "var(--muted)" }}>
-              Estimated arrival times
+              Schedule-based arrival countdowns
             </div>
           </div>
         </div>
@@ -212,13 +220,6 @@ export function ArrivalPage({
             >
               No routes serve this stop.
             </div>
-          ) : stopRoutes.length === 0 ? (
-            <div
-              className="px-4 py-8 text-center"
-              style={{ color: "var(--muted)" }}
-            >
-              No buses serving this stop are running now.
-            </div>
           ) : (
             <>
               <div className="px-4 pb-1 pt-1">
@@ -230,20 +231,24 @@ export function ArrivalPage({
                 </span>
                 {LIVE_ETA_ENABLED ? (
                   <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-                    Live estimates use opt-in rider GPS. When unavailable, the
-                    next two departure times are shown.
+                    Live estimates use opt-in rider GPS. Otherwise, countdowns
+                    follow the service schedule and segment times.
                   </p>
                 ) : (
                   <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-                    Approximate times for the next two departures, not a live bus ETA.
+                    Schedule countdown; actual bus timing may vary.
                   </p>
                 )}
               </div>
-              {stopRoutes.map((route) => {
+              {servingRoutes.map((route) => {
                 const stopIndex = route.stopIds.findIndex((stopId) =>
                   sameStopLocation(STOPS[stopId], selectedStop),
                 );
-                const routeMinutes = getRouteArrivalMinutes(route, stopIndex);
+                const routeMinutes = getRouteArrivalMinutes(
+                  route,
+                  stopIndex,
+                  currentTime,
+                );
                 const nextStop = route.stopIds[stopIndex + 1]
                   ? STOPS[route.stopIds[stopIndex + 1]]
                   : null;

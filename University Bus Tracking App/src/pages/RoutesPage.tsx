@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
+import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import { getRouteArrivalMinutes } from "../lib/transit";
 import type { Route } from "../types/transit";
 
@@ -18,6 +19,7 @@ export function RoutesPage({
   const [showDetail, setShowDetail] = useState(false);
   const [highlightStop, setHighlightStop] = useState<string | null>(null);
   const [focusNonce, setFocusNonce] = useState(0);
+  const currentTime = useCurrentMinute();
 
   const selectStop = (stopId: string) => {
     setHighlightStop(stopId);
@@ -104,6 +106,11 @@ export function RoutesPage({
           {stops.map((stop, index) => {
             const isHighlighted = stop.id === highlightStop;
             const isLast = index === stops.length - 1;
+            const arrivals = getRouteArrivalMinutes(
+              selectedRoute,
+              index,
+              currentTime,
+            );
             return (
               <button
                 key={`${stop.id}-${index}`}
@@ -161,19 +168,26 @@ export function RoutesPage({
                     >
                       {index + 1}. {stop.name}
                     </span>
-                    <div className="mt-0.5 flex gap-2">
-                      {getRouteArrivalMinutes(selectedRoute, index).map(
-                        (minutes, arrivalIndex) => (
+                    {arrivals ? (
+                      <div className="mt-0.5 flex gap-2">
+                        {arrivals.map((minutes, arrivalIndex) => (
                           <span
                             key={arrivalIndex}
                             className="text-xs font-semibold"
                             style={{ color: selectedRoute.color }}
                           >
-                            {minutes} min
+                            {minutes === null ? "--" : `${minutes} min`}
                           </span>
-                        ),
-                      )}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div
+                        className="mt-0.5 text-xs font-semibold"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        Beyond service hours
+                      </div>
+                    )}
                   </div>
                 </div>
               </button>

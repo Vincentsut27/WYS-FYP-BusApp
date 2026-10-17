@@ -6,21 +6,80 @@ export function getArrivals(stopId: string) {
   const base = [3, 8, 18, 23, 33];
   return base.map((value) => (value + (seed % 7)) % 60 || 1);
 }
-export function getRouteTravelMinutes(route: Route, stopIndex: number) {
-  const elapsedSeconds = route.travelTimesSeconds
-    .slice(0, Math.max(0, stopIndex))
-    .reduce((total, seconds) => total + seconds, 0);
-  return Math.floor((elapsedSeconds + 30) / 60);
+function getScheduledDepartureMinutes(route: Route, window: [number, number]) {
+  if (route.departureIntervals?.length) {
+    const departures: number[] = [];
+    let minute = window[0];
+    let intervalIndex = 0;
+    while (minute <= window[1]) {
+      departures.push(minute);
+      minute += route.departureIntervals[
+        intervalIndex % route.departureIntervals.length
+      ];
+      intervalIndex += 1;
+    }
+    return departures;
+  }
+
+  const frequency = route.frequency.match(/\d+/g)?.map(Number) ?? [];
+  if (frequency.length === 0) return [];
+
+  const [startMinute, endMinute] = window;
+  if (frequency.length === 1) {
+    const interval = frequency[0];
+    if (interval <= 0) return [];
+    const departures: number[] = [];
+    for (let minute = startMinute; minute <= endMinute; minute += interval) {
+      departures.push(minute);
+    }
+    return departures;
+  }
+
+  const departures: number[] = [];
+  const firstHour = Math.floor(startMinute / 60);
+  const lastHour = Math.floor(endMinute / 60);
+  for (let hour = firstHour; hour <= lastHour; hour += 1) {
+    for (const minute of frequency) {
+      const departureMinute = hour * 60 + minute;
+      if (departureMinute >= startMinute && departureMinute <= endMinute) {
+        departures.push(departureMinute);
+      }
+    }
+  }
+  return departures.sort((first, second) => first - second);
 }
 
-export function getRouteArrivalMinutes(route: Route, stopIndex: number) {
-  const firstArrival = getRouteTravelMinutes(route, stopIndex);
-  const departureMinutes = route.frequency.match(/\d+/g)?.map(Number) ?? [];
-  const departureInterval =
-    departureMinutes.length > 1
-      ? (departureMinutes[1] - departureMinutes[0] + 60) % 60
-      : (departureMinutes[0] ?? 15);
-  return [firstArrival, firstArrival + (departureInterval || 60)];
+export function getRouteArrivalMinutes(
+  route: Route,
+  stopIndex: number,
+  now = new Date(),
+): [number, number | null] | null {
+  const window = getOperatingWindow(route, now);
+  if (!window) return null;
+
+  const currentMinute = now.getHours() * 60 + now.getMinutes();
+  if (currentMinute < window[0]) return null;
+
+  const travelSeconds = route.travelTimesSeconds
+    .slice(0, Math.max(0, stopIndex))
+    .reduce((total, seconds) => total + seconds, 0);
+  const nowMs = now.getTime();
+  const arrivals: number[] = [];
+
+  const serviceDate = new Date(now);
+  serviceDate.setHours(0, 0, 0, 0);
+  for (const departureMinute of getScheduledDepartureMinutes(route, window)) {
+    const departure = new Date(serviceDate);
+    departure.setMinutes(departureMinute);
+    const arrivalMs = departure.getTime() + travelSeconds * 1000;
+    if (arrivalMs < nowMs) continue;
+
+    arrivals.push(Math.floor((arrivalMs - nowMs + 30_000) / 60_000));
+    if (arrivals.length === 2) break;
+  }
+
+  if (arrivals.length === 0) return null;
+  return [arrivals[0], arrivals[1] ?? null];
 }
 
 export function getRouteTripMinutes(

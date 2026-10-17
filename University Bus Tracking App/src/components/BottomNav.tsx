@@ -8,7 +8,7 @@ export function BottomNav({ active, onChange }: { active: TabId; onChange: (tab:
     { id: "arrival", label: "Arrival", iconPath: ICONS.clock },
     { id: "search", label: "Search", iconPath: ICONS.search },
     { id: "track", label: "Track", iconPath: ICONS.navigation },
-    { id: "about", label: "About", iconPath: ICONS.info },
+    { id: "about", label: "About", iconPath: ICONS.map },
   ];
 
   return (

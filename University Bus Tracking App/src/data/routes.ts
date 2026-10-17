@@ -83,6 +83,7 @@ export const ROUTES: Route[] = [
     operatingDays: "Mon – Fri (Teaching days only); Sat (Teaching days only)", serviceHours: "Mon–Fri 09:18 – 17:26; Sat 09:18 – 13:26", frequency: "Every 18, 22, 26 minutes",
     stopIds: ["chungChiTeaching", "sports", "shawHall", "fungKingHey", "unitedUp", "newAsia", "wuYeeSunUp", "shawUp", "cwChuDown"],
     travelTimesSeconds: [71.503411, 112.570222, 109.904838, 61.642398, 64.442994, 101.993439, 64.442994, 143.910905],
+    departureIntervals: [18, 22, 26],
   },
   {
     id: "6A", label: "6A", description: "Downward – CWC", color: "#059669",
