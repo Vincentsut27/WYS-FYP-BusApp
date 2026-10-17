@@ -1,11 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
-import { getArrivals } from "../lib/transit";
+import { getRouteArrivalMinutes } from "../lib/transit";
 import type { Route } from "../types/transit";
 
-export function RoutesPage() {
+export function RoutesPage({
+  presetRouteId,
+  presetStopId,
+  onPresetApplied,
+}: {
+  presetRouteId?: string;
+  presetStopId?: string;
+  onPresetApplied: () => void;
+}) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [highlightStop, setHighlightStop] = useState<string | null>(null);
@@ -15,6 +23,16 @@ export function RoutesPage() {
     setHighlightStop(stopId);
     setFocusNonce((value) => value + 1);
   };
+
+  useEffect(() => {
+    if (!presetRouteId || !presetStopId) return;
+    const route = ROUTES.find((candidate) => candidate.id === presetRouteId);
+    if (!route || !route.stopIds.includes(presetStopId)) return;
+    setSelectedRoute(route);
+    setHighlightStop(presetStopId);
+    setFocusNonce((value) => value + 1);
+    onPresetApplied();
+  }, [presetRouteId, presetStopId, onPresetApplied]);
 
   if (selectedRoute) {
     const stops = selectedRoute.stopIds.map((id) => STOPS[id]).filter(Boolean);
@@ -80,8 +98,7 @@ export function RoutesPage() {
               {stops.length} Stops
             </span>
             <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-              Arrival minutes are illustrative estimates, not live or official
-              schedule times.
+              Approximate arrival times for the next two departures.
             </p>
           </div>
           {stops.map((stop, index) => {
@@ -144,10 +161,9 @@ export function RoutesPage() {
                     >
                       {index + 1}. {stop.name}
                     </span>
-                    <div className="flex gap-2 mt-0.5">
-                      {getArrivals(stop.id)
-                        .slice(0, 2)
-                        .map((minutes, arrivalIndex) => (
+                    <div className="mt-0.5 flex gap-2">
+                      {getRouteArrivalMinutes(selectedRoute, index).map(
+                        (minutes, arrivalIndex) => (
                           <span
                             key={arrivalIndex}
                             className="text-xs font-semibold"
@@ -155,7 +171,8 @@ export function RoutesPage() {
                           >
                             {minutes} min
                           </span>
-                        ))}
+                        ),
+                      )}
                     </div>
                   </div>
                 </div>

@@ -6,20 +6,17 @@ import {
   getCanonicalStopName,
   getDistance,
   getSearchRouteTrip,
+  getRouteTripMinutes,
   isRouteOperatingNow,
   SEARCH_STOPS,
 } from "../lib/transit";
-import type { JourneyNotification, Route, SearchStop } from "../types/transit";
+import type { Route, SearchStop } from "../types/transit";
 
 export function SearchPage({
-  onNotify,
   onTrackRoute,
   gpsPosition,
   onRequestGps,
 }: {
-  onNotify: (
-    journey: JourneyNotification,
-  ) => Promise<NotificationPermission | "unsupported">;
   onTrackRoute: (route: Route, from: SearchStop, to: SearchStop) => void;
   gpsPosition: GeolocationPosition | null;
   onRequestGps: () => void;
@@ -32,10 +29,6 @@ export function SearchPage({
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
   const [searchedAt, setSearchedAt] = useState<Date | null>(null);
   const [hasDirectRoute, setHasDirectRoute] = useState<boolean | null>(null);
-  const [notificationFeedback, setNotificationFeedback] = useState<{
-    routeId: string;
-    message: string;
-  } | null>(null);
   const userPosition: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
@@ -225,7 +218,11 @@ export function SearchPage({
               results.map((route) => {
                 const trip = getSearchRouteTrip(route, from!, to!)!;
                 const stopsCount = trip.count;
-                const averageTime = stopsCount * 4 + 2;
+                const tripMinutes = getRouteTripMinutes(
+                  route,
+                  trip.startIndex,
+                  trip.endIndex,
+                );
                 const arrivalMinutes = getArrivals(from!.id + route.id)[0];
                 return (
                   <div
@@ -256,7 +253,7 @@ export function SearchPage({
                           style={{ color: "var(--muted)" }}
                         >
                           {stopsCount} stop{stopsCount !== 1 ? "s" : ""} · ~
-                          {averageTime} min ride
+                          {tripMinutes} min ride
                         </div>
                       </div>
                       <div className="text-right">
@@ -308,63 +305,23 @@ export function SearchPage({
                         );
                       })}
                     </div>
-                    <div className="flex items-center justify-between gap-2 mt-3">
+                    <div className="mt-3">
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
                           onTrackRoute(route, from!, to!);
                         }}
-                        className="flex-1 px-2.5 py-1.5 rounded-full text-[10px] font-bold text-left"
+                        className="flex w-full min-h-10 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-left"
                         style={{
                           color: route.color,
                           background: `${route.color}18`,
                         }}
                       >
-                        Track route · {route.label} · {from!.name} → {to!.name}
-                      </button>
-                      <button
-                        onClick={async (event) => {
-                          event.stopPropagation();
-                          setNotificationFeedback({
-                            routeId: route.id,
-                            message: "Setting reminder...",
-                          });
-                          const permission = await onNotify({
-                            route,
-                            origin: STOPS[from!.searchIds[0]],
-                            arrivalMinutes,
-                          });
-                          const message =
-                            permission === "granted"
-                              ? `Reminder set for about ${arrivalMinutes} min from now.`
-                              : permission === "unsupported"
-                                ? `In-app reminder set for about ${arrivalMinutes} min. ${window.isSecureContext ? "Browser notifications are unavailable here." : "Browser notifications require a secure HTTPS connection."}`
-                                : permission === "denied"
-                                  ? `In-app reminder set for about ${arrivalMinutes} min. Allow notifications for this site in browser settings to receive browser alerts.`
-                                  : `In-app reminder set for about ${arrivalMinutes} min. Browser permission is still pending.`;
-                          setNotificationFeedback({
-                            routeId: route.id,
-                            message,
-                          });
-                        }}
-                        className="px-2.5 py-1 rounded-full text-[10px] font-bold"
-                        style={{
-                          color: route.color,
-                          background: `${route.color}18`,
-                        }}
-                      >
-                        Notify me
+                        <Icon path={ICONS.navigation} size={16} />
+                        <span className="flex-1">Track this route</span>
+                        <Icon path={ICONS.chevronRight} size={16} />
                       </button>
                     </div>
-                    {notificationFeedback?.routeId === route.id && (
-                      <div
-                        className="mt-2 text-xs leading-5"
-                        style={{ color: "var(--muted)" }}
-                        role="status"
-                      >
-                        {notificationFeedback.message}
-                      </div>
-                    )}
                     {expandedRouteId === route.id && (
                       <div
                         className="mt-3 pt-3 border-t"
@@ -374,7 +331,7 @@ export function SearchPage({
                           className="text-xs font-semibold uppercase tracking-widest mb-2"
                           style={{ color: "var(--muted)" }}
                         >
-                          Complete Route · highlighted section is your journey
+                          Your journey
                         </div>
                         <div className="space-y-1">
                           {route.stopIds.map((stopId, index) => {

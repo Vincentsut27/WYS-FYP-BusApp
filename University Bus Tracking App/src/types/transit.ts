@@ -16,6 +16,7 @@ export interface Route {
   frequency: string;
   notes?: string;
   stopIds: string[];
+  travelTimesSeconds: number[];
 }
 
 export type SearchStop = Stop & { searchIds: string[] };

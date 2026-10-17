@@ -4,10 +4,12 @@ import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
 import { useLiveBusEta } from "../hooks/useLiveBusEta";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
+import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
 import {
-  getArrivals,
   getDistance,
   getPhysicalStops,
+  getRouteArrivalMinutes,
+  isRouteOperatingNow,
   sameStopLocation,
 } from "../lib/transit";
 import type { Route, Stop } from "../types/transit";
@@ -56,7 +58,7 @@ function LiveRouteEstimate({
         className="text-[10px] font-semibold uppercase"
         style={{ color: "var(--muted)" }}
       >
-        Community live ETA
+        {hasLiveEta ? "Live ETA" : "Trip time from start"}
       </div>
       {hasLiveEta ? (
         <div className="text-lg font-extrabold" style={{ color: route.color }}>
@@ -80,12 +82,51 @@ function LiveRouteEstimate({
       )}
       <div className="text-[10px]" style={{ color: "var(--muted)" }}>
         {hasLiveEta
-          ? `Crowd-sourced · ${estimate.reportsCount} active ${estimate.reportsCount === 1 ? "rider" : "riders"}`
+          ? `${estimate.reportsCount} live ${estimate.reportsCount === 1 ? "report" : "reports"}`
           : estimate.status === "error"
-            ? "Illustrative estimate · live data unavailable"
+            ? "Live ETA unavailable · showing route time"
             : estimate.status === "unconfigured"
-              ? "Illustrative estimate · live ETA not configured"
-              : "Illustrative estimates · waiting for live data"}
+              ? "Live ETA not configured · showing route time"
+              : "Approximate route travel time"}
+      </div>
+    </div>
+  );
+}
+
+function IllustrativeRouteEstimate({
+  route,
+  minutes,
+}: {
+  route: Route;
+  minutes: number[];
+}) {
+  return (
+    <div
+      className="rounded-xl px-3 py-2 text-center"
+      style={{ background: "var(--bg)" }}
+    >
+      <div
+        className="text-[10px] font-semibold uppercase"
+        style={{ color: "var(--muted)" }}
+      >
+        Trip time from start
+      </div>
+      <div className="mt-1 flex gap-2">
+        {minutes.map((value, index) => (
+          <div
+            key={`${value}-${index}`}
+            className="flex-1 rounded-lg py-1 text-center text-sm font-bold"
+            style={{
+              background: index === 0 ? route.color : "white",
+              color: index === 0 ? "white" : route.color,
+            }}
+          >
+            {value} min
+          </div>
+        ))}
+      </div>
+      <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+        Approximate route travel time
       </div>
     </div>
   );
@@ -95,10 +136,12 @@ export function ArrivalPage({
   gpsPosition,
   onRequestGps,
   userHeading,
+  onSelectRoute,
 }: {
   gpsPosition: GeolocationPosition | null;
   onRequestGps: () => void;
   userHeading?: number | null;
+  onSelectRoute: (routeId: string, stopId: string) => void;
 }) {
   const [subTab, setSubTab] = useState<"nearby" | "stops">("nearby");
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
@@ -118,10 +161,13 @@ export function ArrivalPage({
   const stopList = subTab === "nearby" ? nearbyStops : physicalStops;
 
   if (selectedStop) {
-    const stopRoutes = ROUTES.filter((route) =>
+    const servingRoutes = ROUTES.filter((route) =>
       route.stopIds.some((stopId) =>
         sameStopLocation(STOPS[stopId], selectedStop),
       ),
+    );
+    const stopRoutes = servingRoutes.filter((route) =>
+      isRouteOperatingNow(route),
     );
     return (
       <div className="flex flex-col h-full" style={{ background: "var(--bg)" }}>
@@ -159,12 +205,19 @@ export function ArrivalPage({
               />
             </div>
           </div>
-          {stopRoutes.length === 0 ? (
+          {servingRoutes.length === 0 ? (
             <div
               className="px-4 py-8 text-center"
               style={{ color: "var(--muted)" }}
             >
               No routes serve this stop.
+            </div>
+          ) : stopRoutes.length === 0 ? (
+            <div
+              className="px-4 py-8 text-center"
+              style={{ color: "var(--muted)" }}
+            >
+              No buses serving this stop are running now.
             </div>
           ) : (
             <>
@@ -173,28 +226,40 @@ export function ArrivalPage({
                   className="text-xs font-semibold uppercase tracking-widest"
                   style={{ color: "var(--muted)" }}
                 >
-                  Buses arriving at this stop
+                  Routes serving this stop
                 </span>
-                <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-                  Crowd-sourced estimates use opt-in rider GPS. Illustrative
-                  estimates are shown until live reports are available.
-                </p>
+                {LIVE_ETA_ENABLED ? (
+                  <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
+                    Live estimates use opt-in rider GPS. When unavailable, the
+                    next two departure times are shown.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
+                    Approximate times for the next two departures, not a live bus ETA.
+                  </p>
+                )}
               </div>
               {stopRoutes.map((route) => {
-                const arrivals = getArrivals(selectedStop.id + route.id).slice(
-                  0,
-                  3,
-                );
                 const stopIndex = route.stopIds.findIndex((stopId) =>
                   sameStopLocation(STOPS[stopId], selectedStop),
                 );
+                const routeMinutes = getRouteArrivalMinutes(route, stopIndex);
                 const nextStop = route.stopIds[stopIndex + 1]
                   ? STOPS[route.stopIds[stopIndex + 1]]
                   : null;
+                const matchingRouteStopId = route.stopIds.find((stopId) =>
+                  sameStopLocation(STOPS[stopId], selectedStop),
+                );
                 return (
-                  <div
+                  <button
                     key={route.id}
-                    className="mx-3 mb-3 bg-white rounded-2xl p-4 shadow-sm"
+                    type="button"
+                    onClick={() => {
+                      if (matchingRouteStopId) {
+                        onSelectRoute(route.id, matchingRouteStopId);
+                      }
+                    }}
+                    className="mx-3 mb-3 block w-[calc(100%-1.5rem)] bg-white rounded-2xl p-4 text-left shadow-sm active:bg-gray-50"
                   >
                     <div className="flex items-center gap-3 mb-3">
                       <div
@@ -220,12 +285,19 @@ export function ArrivalPage({
                         )}
                       </div>
                     </div>
-                    <LiveRouteEstimate
-                      route={route}
-                      selectedStop={selectedStop}
-                      fallbackMinutes={arrivals}
-                    />
-                  </div>
+                    {LIVE_ETA_ENABLED ? (
+                      <LiveRouteEstimate
+                        route={route}
+                        selectedStop={selectedStop}
+                        fallbackMinutes={routeMinutes}
+                      />
+                    ) : (
+                      <IllustrativeRouteEstimate
+                        route={route}
+                        minutes={routeMinutes}
+                      />
+                    )}
+                  </button>
                 );
               })}
             </>

@@ -1,6 +1,6 @@
 import { Icon, ICONS } from "./Icon";
 
-export type TabId = "routes" | "arrival" | "search" | "track";
+export type TabId = "routes" | "arrival" | "search" | "track" | "about";
 
 export function BottomNav({ active, onChange }: { active: TabId; onChange: (tab: TabId) => void }) {
   const tabs: { id: TabId; label: string; iconPath: string }[] = [
@@ -8,6 +8,7 @@ export function BottomNav({ active, onChange }: { active: TabId; onChange: (tab:
     { id: "arrival", label: "Arrival", iconPath: ICONS.clock },
     { id: "search", label: "Search", iconPath: ICONS.search },
     { id: "track", label: "Track", iconPath: ICONS.navigation },
+    { id: "about", label: "About", iconPath: ICONS.info },
   ];
 
   return (
@@ -22,13 +23,7 @@ export function BottomNav({ active, onChange }: { active: TabId; onChange: (tab:
               style={{ color: isActive ? "var(--purple)" : "var(--muted)" }}
               onClick={() => onChange(tab.id)}
             >
-              {isActive && tab.id === "routes" ? (
-                <div className="p-1.5 rounded-2xl" style={{ background: "var(--purple-pale)" }}>
-                  <Icon path={tab.iconPath} size={20} />
-                </div>
-              ) : (
-                <Icon path={tab.iconPath} size={20} />
-              )}
+              <Icon path={tab.iconPath} size={20} />
               <span className="text-[10px] font-medium">{tab.label}</span>
             </button>
           );

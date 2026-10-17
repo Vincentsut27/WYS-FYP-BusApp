@@ -5,6 +5,7 @@ import { ROUTES, STOPS } from "../data/routes";
 import { useBusLocationSharing } from "../hooks/useBusLocationSharing";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
 import { useTripProgress } from "../hooks/useTripProgress";
+import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
 import {
   getCanonicalStopName,
   getDistance,
@@ -12,6 +13,8 @@ import {
 } from "../lib/transit";
 import { supabase } from "../lib/supabase";
 import type { Route, Stop } from "../types/transit";
+
+const TRIP_SURVEY_SEEN_KEY = "cuhk-bus-trip-survey-seen";
 
 export function TrackPage({
   isActive = true,
@@ -52,6 +55,9 @@ export function TrackPage({
   } | null>(null);
   const [tripStarted, setTripStarted] = useState(false);
   const [showStartPrompt, setShowStartPrompt] = useState(false);
+  const [hasSeenTripSurvey, setHasSeenTripSurvey] = useState(
+    () => window.localStorage.getItem(TRIP_SURVEY_SEEN_KEY) === "true",
+  );
   const [arrivalNotificationsEnabled, setArrivalNotificationsEnabled] =
     useState(false);
   const [notificationPermissionMessage, setNotificationPermissionMessage] =
@@ -93,7 +99,7 @@ export function TrackPage({
     tripStartStopIndex,
   );
   const busLocationSharing = useBusLocationSharing(
-    shareTripProgress && tripStarted,
+    LIVE_ETA_ENABLED && shareTripProgress && tripStarted,
     selectedRoute?.id,
     anonymousToken,
     gpsPosition,
@@ -117,8 +123,13 @@ export function TrackPage({
     setSurveyExpanded(false);
     setSurveyStatus("idle");
     setSurveyError(null);
-    setSurveyPendingAfterArrival(Boolean(arrivalAlert));
-    setShowTripSurvey(!arrivalAlert);
+    const shouldPromptForSurvey = !hasSeenTripSurvey;
+    setSurveyPendingAfterArrival(Boolean(arrivalAlert && shouldPromptForSurvey));
+    setShowTripSurvey(!arrivalAlert && shouldPromptForSurvey);
+    if (!arrivalAlert && shouldPromptForSurvey) {
+      window.localStorage.setItem(TRIP_SURVEY_SEEN_KEY, "true");
+      setHasSeenTripSurvey(true);
+    }
     contentScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -336,7 +347,7 @@ export function TrackPage({
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
-    setShareTripProgress(true);
+    setShareTripProgress(LIVE_ETA_ENABLED);
     setTripGuidancePoints(guidancePoints);
     setTripStartStopIndex(initialStopIndex);
     setTripStopIndex(initialStopIndex);
@@ -1013,7 +1024,7 @@ export function TrackPage({
             </button>
           )}
         </div>
-        {selectedRoute && tripStarted && (
+        {selectedRoute && tripStarted && LIVE_ETA_ENABLED && (
           <div className="mx-3 mt-2 rounded-xl border bg-white px-3 py-3">
             <button
               type="button"
@@ -1171,6 +1182,8 @@ export function TrackPage({
                 if (surveyPendingAfterArrival) {
                   setSurveyPendingAfterArrival(false);
                   setShowTripSurvey(true);
+                  window.localStorage.setItem(TRIP_SURVEY_SEEN_KEY, "true");
+                  setHasSeenTripSurvey(true);
                 }
               }}
               className="mt-5 w-full rounded-2xl py-3 text-sm font-semibold text-white"

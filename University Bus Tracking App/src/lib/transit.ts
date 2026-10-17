@@ -6,6 +6,33 @@ export function getArrivals(stopId: string) {
   const base = [3, 8, 18, 23, 33];
   return base.map((value) => (value + (seed % 7)) % 60 || 1);
 }
+export function getRouteTravelMinutes(route: Route, stopIndex: number) {
+  const elapsedSeconds = route.travelTimesSeconds
+    .slice(0, Math.max(0, stopIndex))
+    .reduce((total, seconds) => total + seconds, 0);
+  return Math.floor((elapsedSeconds + 30) / 60);
+}
+
+export function getRouteArrivalMinutes(route: Route, stopIndex: number) {
+  const firstArrival = getRouteTravelMinutes(route, stopIndex);
+  const departureMinutes = route.frequency.match(/\d+/g)?.map(Number) ?? [];
+  const departureInterval =
+    departureMinutes.length > 1
+      ? (departureMinutes[1] - departureMinutes[0] + 60) % 60
+      : (departureMinutes[0] ?? 15);
+  return [firstArrival, firstArrival + (departureInterval || 60)];
+}
+
+export function getRouteTripMinutes(
+  route: Route,
+  startIndex: number,
+  endIndex: number,
+) {
+  const tripSeconds = route.travelTimesSeconds
+    .slice(startIndex, endIndex)
+    .reduce((total, seconds) => total + seconds, 0);
+  return Math.floor((tripSeconds + 30) / 60);
+}
 
 export function getDistance(lat1: number, lng1: number, lat2: number, lng2: number) {
   const radius = 6371000;
@@ -50,13 +77,23 @@ export const SEARCH_STOPS: SearchStop[] = Object.values(STOPS).reduce<SearchStop
 export function getSearchRouteTrip(route: Route, from: SearchStop, to: SearchStop) {
   const fromIndexes = from.searchIds.flatMap((id) => route.stopIds.flatMap((stopId, index) => stopId === id ? [index] : []));
   const toIndexes = to.searchIds.flatMap((id) => route.stopIds.flatMap((stopId, index) => stopId === id ? [index] : []));
-  const trips: { stops: string[]; count: number }[] = [];
+  const trips: {
+    stops: string[];
+    count: number;
+    startIndex: number;
+    endIndex: number;
+  }[] = [];
 
   fromIndexes.forEach((fromIndex) => toIndexes.forEach((toIndex) => {
     if (toIndex <= fromIndex) return;
     const count = toIndex - fromIndex;
     if (trips.some((trip) => trip.count <= count)) return;
-    trips.push({ stops: route.stopIds.slice(fromIndex, toIndex + 1), count });
+    trips.push({
+      stops: route.stopIds.slice(fromIndex, toIndex + 1),
+      count,
+      startIndex: fromIndex,
+      endIndex: toIndex,
+    });
   }));
 
   return trips.sort((first, second) => first.count - second.count)[0] ?? null;
@@ -67,37 +104,79 @@ function toMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
+const PUBLIC_HOLIDAYS_2026 = new Set([
+  "2026-01-01",
+  "2026-02-17",
+  "2026-02-18",
+  "2026-02-19",
+  "2026-04-03",
+  "2026-04-04",
+  "2026-04-06",
+  "2026-04-07",
+  "2026-05-01",
+  "2026-05-25",
+  "2026-06-19",
+  "2026-07-01",
+  "2026-09-26",
+  "2026-10-01",
+  "2026-10-19",
+  "2026-12-25",
+  "2026-12-26",
+]);
+
+function isPublicHoliday(date: Date) {
+  const dateKey = [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+  return PUBLIC_HOLIDAYS_2026.has(dateKey);
+}
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+const WEEKDAY_PATTERN = /\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b(?:\s*[–-]\s*(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\b)?/g;
+
+function getScheduledDays(value: string) {
+  const days = new Set<number>();
+  for (const match of value.matchAll(WEEKDAY_PATTERN)) {
+    const firstDay = WEEKDAY_INDEX[match[1]];
+    const lastDay = match[2] ? WEEKDAY_INDEX[match[2]] : firstDay;
+    for (let day = firstDay; ; day = (day + 1) % 7) {
+      days.add(day);
+      if (day === lastDay) break;
+    }
+  }
+  return days;
+}
+
 function getOperatingWindow(route: Route, date: Date): [number, number] | null {
   const day = date.getDay();
-  if (route.id === "H") return day === 0 ? [toMinutes("08:20"), toMinutes("23:20")] : null;
-  if (route.id === "N") return day >= 1 && day <= 6 ? [toMinutes("19:00"), toMinutes("23:30")] : null;
-  if (route.id === "5") {
-    if (day >= 1 && day <= 5) return [toMinutes("09:18"), toMinutes("17:26")];
-    if (day === 6) return [toMinutes("09:18"), toMinutes("13:26")];
+  const publicHoliday = isPublicHoliday(date);
+  const operatingDays = route.operatingDays.replace(/\([^)]*\)/g, "");
+  const runsOnPublicHolidays =
+    /public holidays/i.test(operatingDays) &&
+    !/(?:except|suspended).*public holidays/i.test(route.operatingDays);
+  const scheduledDays = getScheduledDays(operatingDays);
+  if (publicHoliday ? !runsOnPublicHolidays : !scheduledDays.has(day)) {
     return null;
   }
-  if (route.id === "6A") {
-    if (day >= 1 && day <= 5) return [toMinutes("09:10"), toMinutes("17:10")];
-    if (day === 6) return [toMinutes("09:10"), toMinutes("13:10")];
-    return null;
+
+  for (const period of route.serviceHours.split(";")) {
+    const timeRange = period.match(/(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})/);
+    if (!timeRange || timeRange.index === undefined) continue;
+    const periodDays = getScheduledDays(period.slice(0, timeRange.index));
+    if (periodDays.size > 0 && !periodDays.has(day)) continue;
+    return [toMinutes(timeRange[1]), toMinutes(timeRange[2])];
   }
-  if (route.id === "6B") return day >= 1 && day <= 5 ? [toMinutes("12:20"), toMinutes("17:20")] : null;
-  if (route.id === "7") {
-    if (day >= 1 && day <= 5) return [toMinutes("08:18"), toMinutes("17:18")];
-    if (day === 6) return [toMinutes("08:18"), toMinutes("13:18")];
-    return null;
-  }
-  if (day === 0) return null;
-  const serviceHours: Record<string, [string, string]> = {
-    "1": ["07:40", "18:55"],
-    "2": ["07:45", "18:45"],
-    "2S": ["08:00", "18:30"],
-    "3": ["09:00", "18:40"],
-    "4": ["07:30", "18:50"],
-    "8": ["07:35", "18:35"],
-  };
-  const hours = serviceHours[route.id];
-  return hours ? [toMinutes(hours[0]), toMinutes(hours[1])] : null;
+  return null;
 }
 
 export function isRouteOperatingNow(route: Route, date = new Date()) {
