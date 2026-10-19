@@ -16,7 +16,11 @@ export default function App() {
     routeId: string;
     startStopId: string;
     endStopId: string;
+    startStopIndex?: number;
+    endStopIndex?: number;
+    buildingId?: string;
   } | null>(null);
+  const [trackPresetRevision, setTrackPresetRevision] = useState(0);
   const [routeFocusPreset, setRouteFocusPreset] = useState<{
     routeId: string;
     stopId: string;
@@ -34,6 +38,27 @@ export default function App() {
       to.searchIds.find((stopId) => route.stopIds.includes(stopId)) ??
       to.searchIds[0];
     setTrackPreset({ routeId: route.id, startStopId, endStopId });
+    setTrackPresetRevision((revision) => revision + 1);
+    setTab("track");
+  };
+
+  const handleTrackBuilding = (
+    route: Route,
+    startStopId: string,
+    endStopId: string,
+    startStopIndex: number,
+    endStopIndex: number,
+    buildingId: string,
+  ) => {
+    setTrackPreset({
+      routeId: route.id,
+      startStopId,
+      endStopId,
+      startStopIndex,
+      endStopIndex,
+      buildingId,
+    });
+    setTrackPresetRevision((revision) => revision + 1);
     setTab("track");
   };
 
@@ -102,6 +127,7 @@ export default function App() {
             >
               <SearchPage
                 onTrackRoute={handleTrackRoute}
+                onTrackBuilding={handleTrackBuilding}
                 gpsPosition={gps.position}
                 onRequestGps={requestGps}
               />
@@ -117,6 +143,10 @@ export default function App() {
                 presetRouteId={trackPreset?.routeId}
                 presetStartStopId={trackPreset?.startStopId}
                 presetDestStopId={trackPreset?.endStopId}
+                presetStartStopIndex={trackPreset?.startStopIndex}
+                presetDestStopIndex={trackPreset?.endStopIndex}
+                presetDestBuildingId={trackPreset?.buildingId}
+                presetRevision={trackPresetRevision}
               />
             </div>
             <div

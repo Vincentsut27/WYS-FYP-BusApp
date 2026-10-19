@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
+import { CAMPUS_BUILDINGS } from "../data/buildings";
 import { ROUTES, STOPS } from "../data/routes";
 import { useBusLocationSharing } from "../hooks/useBusLocationSharing";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
@@ -12,7 +13,7 @@ import {
   playArrivalTone,
 } from "../lib/transit";
 import { supabase } from "../lib/supabase";
-import type { Route, Stop } from "../types/transit";
+import type { CampusBuilding, Route, Stop } from "../types/transit";
 
 const TRIP_SURVEY_SEEN_KEY = "cuhk-bus-trip-survey-seen";
 
@@ -24,6 +25,10 @@ export function TrackPage({
   presetRouteId,
   presetStartStopId,
   presetDestStopId,
+  presetStartStopIndex,
+  presetDestStopIndex,
+  presetDestBuildingId,
+  presetRevision,
 }: {
   isActive?: boolean;
   gpsPosition: GeolocationPosition | null;
@@ -32,9 +37,18 @@ export function TrackPage({
   presetRouteId?: string;
   presetStartStopId?: string;
   presetDestStopId?: string;
+  presetStartStopIndex?: number;
+  presetDestStopIndex?: number;
+  presetDestBuildingId?: string;
+  presetRevision?: number;
 }) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [destStop, setDestStop] = useState<Stop | null>(null);
+  const [destinationBuilding, setDestinationBuilding] =
+    useState<CampusBuilding | null>(null);
+  const [buildingWalkStarted, setBuildingWalkStarted] = useState(false);
+  const [buildingGuidanceDismissed, setBuildingGuidanceDismissed] =
+    useState(false);
   const [destStopRouteIndex, setDestStopRouteIndex] = useState<number | null>(
     null,
   );
@@ -72,14 +86,12 @@ export function TrackPage({
   const [surveyPendingAfterArrival, setSurveyPendingAfterArrival] = useState(false);
   const [shareTripProgress, setShareTripProgress] = useState(false);
   const [anonymousToken, setAnonymousToken] = useState<string | null>(null);
-  const [tripGuidancePoints, setTripGuidancePoints] = useState<
-    [number, number][] | null
-  >(null);
   const [tripStopIndex, setTripStopIndex] = useState<number | null>(null);
   const [tripStartStopIndex, setTripStartStopIndex] = useState<number | null>(
     null,
   );
   const [mapRotation, setMapRotation] = useState(0);
+  const appliedPresetRevisionRef = useRef<number | null>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const routeStops = selectedRoute
     ? selectedRoute.stopIds.map((id) => STOPS[id]).filter(Boolean)
@@ -113,9 +125,9 @@ export function TrackPage({
     setTripStarted(false);
     setShareTripProgress(false);
     setAnonymousToken(null);
-    setTripGuidancePoints(null);
     setTripStopIndex(null);
     setTripStartStopIndex(null);
+    setBuildingWalkStarted(false);
     setStopAlert(arrivalAlert);
     setSurveyRating(null);
     setSurveyExperience("");
@@ -324,6 +336,13 @@ export function TrackPage({
     if (!userPosition || !startStop || startGuidanceDismissed) return null;
     return [userPosition, [startStop.lat, startStop.lng]];
   }, [userPosition, startStop, startGuidanceDismissed]);
+  const buildingGuidancePoints = useMemo<[number, number][] | null>(() => {
+    if (!destStop || !destinationBuilding) return null;
+    return [
+      [destStop.lat, destStop.lng],
+      [destinationBuilding.lat, destinationBuilding.lng],
+    ];
+  }, [destStop, destinationBuilding]);
 
   useEffect(() => {
     if (!userPosition || !startStop || startGuidanceDismissed) return;
@@ -348,7 +367,6 @@ export function TrackPage({
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     setShareTripProgress(LIVE_ETA_ENABLED);
-    setTripGuidancePoints(guidancePoints);
     setTripStartStopIndex(initialStopIndex);
     setTripStopIndex(initialStopIndex);
     setTripStarted(true);
@@ -369,14 +387,36 @@ export function TrackPage({
     (destStop ? routeStops.findIndex((stop) => stop.id === destStop.id) : -1);
   useEffect(() => {
     if (
+      (presetRouteId &&
+        appliedPresetRevisionRef.current !== (presetRevision ?? 0)) ||
       !tripStarted ||
       !destStop ||
       destinationRouteIndex < 0 ||
       !tripProgress.confident ||
       tripProgress.currentStopIndex === null ||
-      tripProgress.currentStopIndex <= destinationRouteIndex
+      tripProgress.currentStopIndex < destinationRouteIndex
     )
       return;
+
+    if (destinationBuilding) {
+      if (buildingWalkStarted) return;
+      setBuildingWalkStarted(true);
+      setShareTripProgress(false);
+      const getOffAlert = {
+        title: `Get off at ${destStop.name}`,
+        body: `Follow the walking dots to ${destinationBuilding.name}. Your trip will end when you reach the building.`,
+      };
+      setStopAlert(getOffAlert);
+      if (arrivalNotificationsEnabled) playArrivalTone();
+      if (
+        arrivalNotificationsEnabled &&
+        "Notification" in window &&
+        Notification.permission === "granted"
+      ) {
+        new Notification(getOffAlert.title, { body: getOffAlert.body });
+      }
+      return;
+    }
 
     const arrivalAlert = {
       title: "You've arrived",
@@ -394,9 +434,53 @@ export function TrackPage({
   }, [
     tripStarted,
     destStop,
+    destinationBuilding,
+    buildingWalkStarted,
     destinationRouteIndex,
     tripProgress.confident,
     tripProgress.currentStopIndex,
+    arrivalNotificationsEnabled,
+    presetRouteId,
+    presetRevision,
+  ]);
+
+  useEffect(() => {
+    if (
+      !tripStarted ||
+      !buildingWalkStarted ||
+      !destinationBuilding ||
+      !userPosition ||
+      getDistance(
+        userPosition[0],
+        userPosition[1],
+        destinationBuilding.lat,
+        destinationBuilding.lng,
+      ) > 5
+    ) {
+      return;
+    }
+
+    const arrivalAlert = {
+      title: "You've arrived",
+      body: `You've reached ${destinationBuilding.name}. Your trip has ended.`,
+    };
+    setBuildingWalkStarted(false);
+    setBuildingGuidanceDismissed(true);
+    setShareTripProgress(false);
+    endTrip(arrivalAlert);
+    if (arrivalNotificationsEnabled) playArrivalTone();
+    if (
+      arrivalNotificationsEnabled &&
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ) {
+      new Notification(arrivalAlert.title, { body: arrivalAlert.body });
+    }
+  }, [
+    tripStarted,
+    buildingWalkStarted,
+    destinationBuilding,
+    userPosition,
     arrivalNotificationsEnabled,
   ]);
 
@@ -414,9 +498,19 @@ export function TrackPage({
     const startId = presetStartStopId ?? presetRoute.stopIds[0];
     const endId =
       presetDestStopId ?? presetRoute.stopIds[presetRoute.stopIds.length - 1];
-    const startIndex = presetRoute.stopIds.indexOf(startId);
-    const endIndex = presetRoute.stopIds.indexOf(endId);
+    const startIndex =
+      presetStartStopIndex !== undefined &&
+      presetRoute.stopIds[presetStartStopIndex] === startId
+        ? presetStartStopIndex
+        : presetRoute.stopIds.indexOf(startId);
+    const endIndex =
+      presetDestStopIndex !== undefined &&
+      presetRoute.stopIds[presetDestStopIndex] === endId
+        ? presetDestStopIndex
+        : presetRoute.stopIds.indexOf(endId);
 
+    appliedPresetRevisionRef.current = presetRevision ?? 0;
+    setStopAlert(null);
     setSelectedRoute(presetRoute);
     setStartStop(STOPS[startId] ?? null);
     setStartGuidanceDismissed(false);
@@ -424,16 +518,29 @@ export function TrackPage({
     setStartStopManuallySet(true);
     setDestStop(endIndex >= 0 ? (STOPS[endId] ?? null) : null);
     setDestStopRouteIndex(endIndex >= 0 ? endIndex : null);
+    setDestinationBuilding(
+      CAMPUS_BUILDINGS.find((building) => building.id === presetDestBuildingId) ??
+        null,
+    );
+    setBuildingWalkStarted(false);
+    setBuildingGuidanceDismissed(false);
     setTripStarted(false);
     setShareTripProgress(false);
     setAnonymousToken(null);
-    setTripGuidancePoints(null);
     setTripStopIndex(null);
     setTripStartStopIndex(null);
     setShowRoutePicker(false);
     setShowDestPicker(false);
     setShowStartPicker(false);
-  }, [presetRouteId, presetStartStopId, presetDestStopId]);
+  }, [
+    presetRouteId,
+    presetStartStopId,
+    presetDestStopId,
+    presetStartStopIndex,
+    presetDestStopIndex,
+    presetDestBuildingId,
+    presetRevision,
+  ]);
 
   useEffect(() => setMapRotation(0), [selectedRoute?.id]);
 
@@ -464,6 +571,8 @@ export function TrackPage({
               key={route.id}
               onClick={() => {
                 setSelectedRoute(route);
+                setDestinationBuilding(null);
+                setBuildingWalkStarted(false);
                 setStartStop(null);
                 setStartStopRouteIndex(null);
                 setStartGuidanceDismissed(false);
@@ -473,7 +582,6 @@ export function TrackPage({
                 setTripStarted(false);
                 setShareTripProgress(false);
                 setAnonymousToken(null);
-                setTripGuidancePoints(null);
                 setTripStopIndex(null);
                 setTripStartStopIndex(null);
                 setShowRoutePicker(false);
@@ -554,6 +662,8 @@ export function TrackPage({
             onClick={() => {
               setDestStop(null);
               setDestStopRouteIndex(null);
+              setDestinationBuilding(null);
+              setBuildingWalkStarted(false);
               setShowDestPicker(false);
             }}
             className="w-full px-4 py-4 border-b text-left text-sm active:bg-gray-50"
@@ -566,6 +676,8 @@ export function TrackPage({
               key={`${stop.id}-${index}`}
               onClick={() => {
                 setDestStop(stop);
+                setDestinationBuilding(null);
+                setBuildingWalkStarted(false);
                 setDestStopRouteIndex(startIndex + index + 1);
                 setShowDestPicker(false);
               }}
@@ -636,8 +748,7 @@ export function TrackPage({
                 setStartStopRouteIndex(index);
                 setStartGuidanceDismissed(false);
                 setStartStopManuallySet(true);
-                setDestStop(null);
-                setDestStopRouteIndex(null);
+                setBuildingWalkStarted(false);
                 setShowStartPicker(false);
               }}
               className="w-full flex items-center gap-3 px-4 py-4 border-b text-left active:bg-gray-50"
@@ -717,7 +828,7 @@ export function TrackPage({
           </div>
         </div>
         <p className="text-[10px]" style={{ color: "var(--muted)" }}>
-          Select a route and track your position. Choose a destination to end the trip automatically.
+          Select a route and track your position. Building trips continue with walking guidance after the bus stop.
         </p>
       </div>
 
@@ -748,11 +859,27 @@ export function TrackPage({
               <CampusMap
                 routeId={selectedRoute.id}
                 userPos={userPosition}
-                highlightPath={highlightPath}
+                highlightPath={buildingWalkStarted ? [] : highlightPath}
                 guidancePoints={
-                  (tripStarted
-                    ? (tripGuidancePoints ?? guidancePoints)
-                    : guidancePoints) ?? undefined
+                  !buildingWalkStarted && !startGuidanceDismissed
+                    ? (guidancePoints ?? undefined)
+                    : undefined
+                }
+                destinationGuidancePoints={
+                  !buildingGuidanceDismissed
+                    ? (buildingGuidancePoints ?? undefined)
+                    : undefined
+                }
+                destinationBuilding={
+                  destinationBuilding
+                    ? {
+                        name: destinationBuilding.name,
+                        position: [
+                          destinationBuilding.lat,
+                          destinationBuilding.lng,
+                        ],
+                      }
+                    : undefined
                 }
                 tripProgressMeters={
                   tripStarted ? tripProgress.progressMeters : null
@@ -760,13 +887,16 @@ export function TrackPage({
                 tripStartStopIndex={tripStartStopIndex ?? 0}
                 highlightStopId={activeStop?.id}
                 focusStopId={
-                  userPosition && guidancePoints
+                  buildingWalkStarted ||
+                  (destinationBuilding && !buildingGuidanceDismissed) ||
+                  (userPosition && guidancePoints)
                     ? undefined
                     : (activeStop?.id ?? destStop?.id ?? undefined)
                 }
                 height={tripStarted ? "clamp(300px, 48svh, 430px)" : 300}
                 rotation={mapRotation}
                 userHeading={userHeading ?? 0}
+                dimRoute={buildingWalkStarted}
                 enableTouchRotate
                 onRotationChange={setMapRotation}
               />
@@ -838,12 +968,14 @@ export function TrackPage({
                 style={{ background: "#EFF6FF" }}
               >
                 <div className="text-[10px] mb-1" style={{ color: "#1D4ED8" }}>
-                  Next Stop
+                  {buildingWalkStarted ? "Walking Destination" : "Next Stop"}
                 </div>
                 <div className="text-xs font-bold" style={{ color: "#1D4ED8" }}>
-                  {nextStop
-                    ? getCanonicalStopName(nextStop.shortName)
-                    : "End of route"}
+                  {buildingWalkStarted && destinationBuilding
+                    ? destinationBuilding.name
+                    : nextStop
+                      ? getCanonicalStopName(nextStop.shortName)
+                      : "End of route"}
                 </div>
               </div>
             )}
@@ -950,12 +1082,15 @@ export function TrackPage({
                     className="text-sm font-semibold"
                     style={{ color: "var(--text)" }}
                   >
-                    {destStop ? destStop.name : "Set destination stop"}
+                    {destinationBuilding?.name ??
+                      (destStop ? destStop.name : "Set destination stop")}
                   </div>
                   <div className="text-xs" style={{ color: "var(--muted)" }}>
-                    {destStop
-                      ? "Trip ends automatically at this stop"
-                      : "Optional: choose where to end the trip"}
+                    {destinationBuilding && destStop
+                      ? `Bus to ${getCanonicalStopName(destStop.name)}, then walk to building`
+                      : destStop
+                        ? "Trip ends automatically at this stop"
+                        : "Optional: choose where to end the trip"}
                   </div>
                 </div>
                 <Icon
@@ -993,7 +1128,9 @@ export function TrackPage({
                     <Icon path={ICONS.alert} size={16} />
                     {arrivalNotificationsEnabled
                       ? "Arrival notification enabled"
-                      : "Notify me when I arrive"}
+                      : destinationBuilding
+                        ? "Notify me when I reach the building"
+                        : "Notify me when I arrive"}
                   </button>
                   {notificationPermissionMessage && (
                     <div
@@ -1127,8 +1264,10 @@ export function TrackPage({
               Ready to start your trip?
             </div>
             <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-              {destStop
-                ? `Your destination is ${destStop.name}. Start now for live trip tracking and an arrival alert.`
+              {destinationBuilding && destStop
+                ? `Your destination is ${destinationBuilding.name}. Take ${selectedRoute?.label ?? "the bus"} to ${getCanonicalStopName(destStop.name)}, then follow the walking dots.`
+                : destStop
+                  ? `Your destination is ${destStop.name}. Start now for live trip tracking and an arrival alert.`
                 : selectedRoute
                   ? "You can start without choosing a target stop. Adding one later enhances route guidance and arrival alerts."
                   : "Choose a bus route first. A target stop is optional, but setting one enhances route guidance and arrival alerts."}

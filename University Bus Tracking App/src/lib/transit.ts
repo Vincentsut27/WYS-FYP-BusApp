@@ -21,11 +21,41 @@ function getScheduledDepartureMinutes(route: Route, window: [number, number]) {
     return departures;
   }
 
+  if (route.departureMinutes?.length) {
+    const departures: number[] = [];
+    const firstHour = Math.floor(window[0] / 60);
+    const lastHour = Math.floor(window[1] / 60);
+    for (let hour = firstHour; hour <= lastHour; hour += 1) {
+      for (const minute of route.departureMinutes) {
+        const departureMinute = hour * 60 + minute;
+        if (departureMinute >= window[0] && departureMinute <= window[1]) {
+          departures.push(departureMinute);
+        }
+      }
+    }
+    return departures.sort((first, second) => first - second);
+  }
+
   const frequency = route.frequency.match(/\d+/g)?.map(Number) ?? [];
   if (frequency.length === 0) return [];
 
   const [startMinute, endMinute] = window;
   if (frequency.length === 1) {
+    if (frequency[0] === 0) {
+      const departures: number[] = [];
+      for (
+        let hour = Math.floor(startMinute / 60);
+        hour <= Math.floor(endMinute / 60);
+        hour += 1
+      ) {
+        const departureMinute = hour * 60;
+        if (departureMinute >= startMinute && departureMinute <= endMinute) {
+          departures.push(departureMinute);
+        }
+      }
+      return departures;
+    }
+
     const interval = frequency[0];
     if (interval <= 0) return [];
     const departures: number[] = [];

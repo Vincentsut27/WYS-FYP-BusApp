@@ -14,6 +14,20 @@ import {
 } from "../lib/transit";
 import type { Route, Stop } from "../types/transit";
 
+function getNextRouteArrival(
+  route: Route,
+  selectedStop: Stop,
+  now: Date,
+) {
+  return route.stopIds
+    .flatMap((stopId, stopIndex) => {
+      if (!sameStopLocation(STOPS[stopId], selectedStop)) return [];
+      const arrivals = getRouteArrivalMinutes(route, stopIndex, now);
+      return arrivals ? [{ stopId, stopIndex, arrivals }] : [];
+    })
+    .sort((first, second) => first.arrivals[0] - second.arrivals[0])[0] ?? null;
+}
+
 function LiveRouteEstimate({
   route,
   selectedStop,
@@ -177,6 +191,12 @@ export function ArrivalPage({
         sameStopLocation(STOPS[stopId], selectedStop),
       ),
     );
+    const scheduledRoutes = servingRoutes
+      .flatMap((route) => {
+        const arrival = getNextRouteArrival(route, selectedStop, currentTime);
+        return arrival ? [{ route, ...arrival }] : [];
+      })
+      .sort((first, second) => first.arrivals[0] - second.arrivals[0]);
     return (
       <div className="flex flex-col h-full" style={{ background: "var(--bg)" }}>
         <div
@@ -220,6 +240,13 @@ export function ArrivalPage({
             >
               No routes serve this stop.
             </div>
+          ) : scheduledRoutes.length === 0 ? (
+            <div
+              className="px-4 py-8 text-center"
+              style={{ color: "var(--muted)" }}
+            >
+              No buses are scheduled for this stop during the remaining service hours.
+            </div>
           ) : (
             <>
               <div className="px-4 pb-1 pt-1">
@@ -240,29 +267,17 @@ export function ArrivalPage({
                   </p>
                 )}
               </div>
-              {servingRoutes.map((route) => {
-                const stopIndex = route.stopIds.findIndex((stopId) =>
-                  sameStopLocation(STOPS[stopId], selectedStop),
-                );
-                const routeMinutes = getRouteArrivalMinutes(
-                  route,
-                  stopIndex,
-                  currentTime,
-                );
+              {scheduledRoutes.map(({ route, stopId, stopIndex, arrivals }) => {
+                const routeMinutes = arrivals;
                 const nextStop = route.stopIds[stopIndex + 1]
                   ? STOPS[route.stopIds[stopIndex + 1]]
                   : null;
-                const matchingRouteStopId = route.stopIds.find((stopId) =>
-                  sameStopLocation(STOPS[stopId], selectedStop),
-                );
                 return (
                   <button
                     key={route.id}
                     type="button"
                     onClick={() => {
-                      if (matchingRouteStopId) {
-                        onSelectRoute(route.id, matchingRouteStopId);
-                      }
+                      onSelectRoute(route.id, stopId);
                     }}
                     className="mx-3 mb-3 block w-[calc(100%-1.5rem)] bg-white rounded-2xl p-4 text-left shadow-sm active:bg-gray-50"
                   >

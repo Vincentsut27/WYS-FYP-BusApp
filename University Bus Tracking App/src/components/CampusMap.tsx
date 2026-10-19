@@ -401,10 +401,12 @@ export function CampusMap({
   focusUser = false,
   showAllStops = false,
   onStopClick,
+  destinationGuidancePoints,
   height = 240,
   rotation = 0,
   userHeading = 0,
   guidancePoints,
+  destinationBuilding,
   focusNonce = 0,
   enableTouchRotate = false,
   onRotationChange,
@@ -418,6 +420,8 @@ export function CampusMap({
   userPos?: [number, number] | null;
   highlightPath?: [number, number][];
   guidancePoints?: [number, number][];
+  destinationGuidancePoints?: [number, number][];
+  destinationBuilding?: { name: string; position: [number, number] };
   focusUser?: boolean;
   showAllStops?: boolean;
   onStopClick?: (stop: Stop) => void;
@@ -459,6 +463,8 @@ export function CampusMap({
   const [guidanceRoadPath, setGuidanceRoadPath] = useState<
     [number, number][] | null
   >(null);
+  const [destinationGuidanceRoadPath, setDestinationGuidanceRoadPath] =
+    useState<[number, number][] | null>(null);
 
   useEffect(() => {
     if (!guidancePoints || guidancePoints.length < 2) {
@@ -474,6 +480,23 @@ export function CampusMap({
       active = false;
     };
   }, [guidancePoints]);
+
+  useEffect(() => {
+    if (!destinationGuidancePoints || destinationGuidancePoints.length < 2) {
+      setDestinationGuidanceRoadPath(null);
+      return;
+    }
+    let active = true;
+    setDestinationGuidanceRoadPath(destinationGuidancePoints);
+    loadWalkingPath(destinationGuidancePoints).then((path) => {
+      if (active) {
+        setDestinationGuidanceRoadPath(path ?? destinationGuidancePoints);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [destinationGuidancePoints]);
 
   useEffect(() => {
     if (!highlightPath || highlightPath.length < 2) {
@@ -506,6 +529,14 @@ export function CampusMap({
     () => samplePath(guidanceRoadPath ?? []),
     [guidanceRoadPath],
   );
+  const destinationGuidanceDots = useMemo(
+    () => samplePath(destinationGuidanceRoadPath ?? []),
+    [destinationGuidanceRoadPath],
+  );
+  const combinedGuidancePoints = [
+    ...(guidancePoints ?? []),
+    ...(destinationGuidancePoints ?? []),
+  ];
   return (
     <div
       className="relative w-full overflow-hidden"
@@ -533,10 +564,10 @@ export function CampusMap({
         />
         <MapViewport
           points={
-            guidancePoints?.length && highlightPath?.length
-              ? [...guidancePoints, ...highlightPath]
-              : guidancePoints?.length
-                ? guidancePoints
+            combinedGuidancePoints.length && highlightPath?.length
+              ? [...combinedGuidancePoints, ...highlightPath]
+              : combinedGuidancePoints.length
+                ? combinedGuidancePoints
                 : renderedPath.length > 1
                   ? renderedPath
                   : displayStops.map((stop) => [stop.lat, stop.lng])
@@ -600,6 +631,20 @@ export function CampusMap({
             }}
           />
         ))}
+        {destinationGuidanceDots.map((point, index) => (
+          <CircleMarker
+            key={`destination-guidance-${index}`}
+            pane="markerPane"
+            center={point}
+            radius={3}
+            pathOptions={{
+              color: "white",
+              weight: 1.5,
+              fillColor: "#DB2777",
+              fillOpacity: 1,
+            }}
+          />
+        ))}
         {displayStops.map((stop) => {
           const isHighlighted = stop.id === highlightStopId;
           const isRouteStop = routeStops.some(
@@ -639,6 +684,20 @@ export function CampusMap({
           >
             <Popup>Your location</Popup>
           </Marker>
+        )}
+        {destinationBuilding && (
+          <CircleMarker
+            center={destinationBuilding.position}
+            radius={10}
+            pathOptions={{
+              color: "white",
+              weight: 3,
+              fillColor: "#DB2777",
+              fillOpacity: 1,
+            }}
+          >
+            <Popup>{destinationBuilding.name}</Popup>
+          </CircleMarker>
         )}
       </MapContainer>
     </div>

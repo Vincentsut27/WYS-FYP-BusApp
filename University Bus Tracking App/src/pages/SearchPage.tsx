@@ -1,26 +1,117 @@
 import { useState } from "react";
 import { Icon, ICONS } from "../components/Icon";
+import { CAMPUS_BUILDINGS } from "../data/buildings";
 import { ROUTES, STOPS } from "../data/routes";
+import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import {
   getArrivals,
   getCanonicalStopName,
   getDistance,
+  getRouteArrivalMinutes,
   getSearchRouteTrip,
   getRouteTripMinutes,
+  getPhysicalStops,
   isRouteOperatingNow,
   SEARCH_STOPS,
+  sameStopLocation,
 } from "../lib/transit";
-import type { Route, SearchStop } from "../types/transit";
+import type { CampusBuilding, Route, SearchStop, Stop } from "../types/transit";
+
+interface BuildingRouteOption {
+  route: Route;
+  startStopId: string;
+  endStopId: string;
+  startStopIndex: number;
+  endStopIndex: number;
+  startStop: Stop;
+  endStop: Stop;
+  rideMinutes: number;
+  walkToStartMeters: number;
+  walkToBuildingMeters: number;
+  arrivalMinutes: number;
+}
+
+function getBuildingRouteOptions(
+  origin: Stop,
+  destination: Stop,
+  userPosition: [number, number],
+  building: CampusBuilding,
+  now: Date,
+) {
+  const options: BuildingRouteOption[] = [];
+  for (const route of ROUTES) {
+    if (!isRouteOperatingNow(route, now)) continue;
+    let bestOption: BuildingRouteOption | null = null;
+    for (let startIndex = 0; startIndex < route.stopIds.length - 1; startIndex += 1) {
+      const startStopId = route.stopIds[startIndex];
+      const startStop = STOPS[startStopId];
+      if (!startStop || !sameStopLocation(startStop, origin)) continue;
+      const arrivals = getRouteArrivalMinutes(route, startIndex, now);
+      if (!arrivals) continue;
+
+      for (let endIndex = startIndex + 1; endIndex < route.stopIds.length; endIndex += 1) {
+        const endStopId = route.stopIds[endIndex];
+        const endStop = STOPS[endStopId];
+        if (!endStop || !sameStopLocation(endStop, destination)) continue;
+        const option: BuildingRouteOption = {
+          route,
+          startStopId,
+          endStopId,
+          startStopIndex: startIndex,
+          endStopIndex: endIndex,
+          startStop,
+          endStop,
+          rideMinutes: getRouteTripMinutes(route, startIndex, endIndex),
+          walkToStartMeters: getDistance(
+            userPosition[0],
+            userPosition[1],
+            origin.lat,
+            origin.lng,
+          ),
+          walkToBuildingMeters: getDistance(
+            building.lat,
+            building.lng,
+            destination.lat,
+            destination.lng,
+          ),
+          arrivalMinutes: arrivals[0],
+        };
+        if (
+          !bestOption ||
+          option.arrivalMinutes < bestOption.arrivalMinutes ||
+          (option.arrivalMinutes === bestOption.arrivalMinutes &&
+            option.rideMinutes < bestOption.rideMinutes)
+        ) {
+          bestOption = option;
+        }
+      }
+    }
+    if (bestOption) options.push(bestOption);
+  }
+  return options.sort(
+    (first, second) => first.arrivalMinutes - second.arrivalMinutes,
+  );
+}
 
 export function SearchPage({
   onTrackRoute,
+  onTrackBuilding,
   gpsPosition,
   onRequestGps,
 }: {
   onTrackRoute: (route: Route, from: SearchStop, to: SearchStop) => void;
+  onTrackBuilding: (
+    route: Route,
+    startStopId: string,
+    endStopId: string,
+    startStopIndex: number,
+    endStopIndex: number,
+    buildingId: string,
+  ) => void;
   gpsPosition: GeolocationPosition | null;
   onRequestGps: () => void;
 }) {
+  const [searchMode, setSearchMode] = useState<"places" | "routes">("places");
   const [from, setFrom] = useState<SearchStop | null>(null);
   const [to, setTo] = useState<SearchStop | null>(null);
   const [selecting, setSelecting] = useState<"from" | "to" | null>(null);
@@ -29,6 +120,11 @@ export function SearchPage({
   const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
   const [searchedAt, setSearchedAt] = useState<Date | null>(null);
   const [hasDirectRoute, setHasDirectRoute] = useState<boolean | null>(null);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
+  const [visibleBuildingCount, setVisibleBuildingCount] = useState(8);
+  const [visibleStopCount, setVisibleStopCount] = useState(8);
+  const currentTime = useCurrentMinute();
   const userPosition: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
@@ -57,6 +153,73 @@ export function SearchPage({
     : null;
   const filtered = SEARCH_STOPS.filter((stop) =>
     stop.name.toLowerCase().includes(query.toLowerCase()),
+  );
+  const physicalStops = getPhysicalStops();
+  const filteredBuildings = CAMPUS_BUILDINGS.filter((building) =>
+    building.name.toLowerCase().includes(placeQuery.toLowerCase()),
+  );
+  const filteredPhysicalStops = physicalStops.filter((stop) =>
+    stop.name.toLowerCase().includes(placeQuery.toLowerCase()),
+  );
+  const selectedBuilding = CAMPUS_BUILDINGS.find(
+    (building) => building.id === selectedBuildingId,
+  );
+  const buildingStartCandidates = userPosition
+    ? physicalStops
+        .map((stop) => ({
+          stop,
+          distance: getDistance(
+            userPosition[0],
+            userPosition[1],
+            stop.lat,
+            stop.lng,
+          ),
+        }))
+        .sort((first, second) => first.distance - second.distance)
+        .slice(0, 3)
+    : [];
+  const buildingDestinationCandidates = selectedBuilding
+    ? physicalStops
+        .map((stop) => ({
+          stop,
+          distance: getDistance(
+            selectedBuilding.lat,
+            selectedBuilding.lng,
+            stop.lat,
+            stop.lng,
+          ),
+        }))
+        .sort((first, second) => first.distance - second.distance)
+        .slice(0, 3)
+    : [];
+  const buildingNearestStop = buildingDestinationCandidates[0]?.stop ?? null;
+  const buildingRoutesById = new Map<string, BuildingRouteOption>();
+  if (selectedBuilding && userPosition) {
+    for (const { stop: origin } of buildingStartCandidates) {
+      for (const { stop: destination } of buildingDestinationCandidates) {
+        const routes = getBuildingRouteOptions(
+          origin,
+          destination,
+          userPosition,
+          selectedBuilding,
+          currentTime,
+        );
+        for (const option of routes) {
+          const currentOption = buildingRoutesById.get(option.route.id);
+          if (
+            !currentOption ||
+            option.arrivalMinutes < currentOption.arrivalMinutes ||
+            (option.arrivalMinutes === currentOption.arrivalMinutes &&
+              option.rideMinutes < currentOption.rideMinutes)
+          ) {
+            buildingRoutesById.set(option.route.id, option);
+          }
+        }
+      }
+    }
+  }
+  const buildingRoutes = [...buildingRoutesById.values()].sort(
+    (first, second) => first.arrivalMinutes - second.arrivalMinutes,
   );
 
   function handleSelect(stop: SearchStop) {
@@ -116,8 +279,38 @@ export function SearchPage({
           className="text-xl font-extrabold mb-4"
           style={{ color: "var(--text)" }}
         >
-          Stop-To-Stop Search
+          {searchMode === "places" ? "Where are you going?" : "Stop-To-Stop Search"}
         </h1>
+        <div className="mb-4 grid grid-cols-2 rounded-xl bg-gray-100 p-1" role="tablist" aria-label="Search mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={searchMode === "places"}
+            onClick={() => setSearchMode("places")}
+            className="rounded-lg py-2 text-sm font-semibold"
+            style={{
+              color: searchMode === "places" ? "var(--purple)" : "var(--muted)",
+              background: searchMode === "places" ? "white" : "transparent",
+            }}
+          >
+            Places
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={searchMode === "routes"}
+            onClick={() => setSearchMode("routes")}
+            className="rounded-lg py-2 text-sm font-semibold"
+            style={{
+              color: searchMode === "routes" ? "var(--purple)" : "var(--muted)",
+              background: searchMode === "routes" ? "white" : "transparent",
+            }}
+          >
+            Bus routes
+          </button>
+        </div>
+        {searchMode === "routes" ? (
+          <>
         <div className="relative">
           <button
             onClick={() => {
@@ -178,9 +371,205 @@ export function SearchPage({
         >
           Search Routes
         </button>
+          </>
+        ) : (
+          <input
+            value={placeQuery}
+            onChange={(event) => setPlaceQuery(event.target.value)}
+            placeholder="Search buildings or stops..."
+            className="w-full rounded-2xl border px-4 py-3.5 text-sm outline-none"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--bg)",
+              color: "var(--text)",
+            }}
+          />
+        )}
       </div>
       <div className="flex-1 scrollable">
-        {results !== null && (
+        {searchMode === "places" && (
+          <div className="bg-white">
+            {selectedBuilding && (
+              <section className="border-b px-4 py-4" style={{ borderColor: "var(--border)" }}>
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                      Selected destination
+                    </div>
+                    <div className="mt-1 text-base font-bold" style={{ color: "var(--text)" }}>
+                      {selectedBuilding.name}
+                    </div>
+                    {buildingNearestStop && (
+                      <div className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
+                        To: {getCanonicalStopName(buildingNearestStop.name)}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedBuildingId(null)}
+                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
+                    style={{ background: "var(--bg)", color: "var(--muted)" }}
+                    aria-label="Clear selected building"
+                  >
+                    <Icon path={ICONS.x} size={16} />
+                  </button>
+                </div>
+                {!gpsPosition ? (
+                  <button
+                    type="button"
+                    onClick={onRequestGps}
+                    className="mt-2 w-full rounded-xl py-3 text-sm font-semibold text-white"
+                    style={{ background: "var(--purple)" }}
+                  >
+                    Enable location to find bus routes
+                  </button>
+                ) : buildingRoutes.length === 0 ? (
+                  <div className="mt-3 rounded-xl px-3 py-3 text-sm" style={{ background: "var(--bg)", color: "var(--muted)" }}>
+                    No bus service connects your three nearest stops to this building right now.
+                  </div>
+                ) : (
+                  <div className="mt-3">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                      Direct bus routes
+                    </div>
+                    <div className="space-y-2">
+                      {buildingRoutes.map((option) => (
+                        <button
+                          key={`${option.route.id}-${option.startStopId}-${option.endStopId}`}
+                          type="button"
+                          onClick={() => onTrackBuilding(
+                            option.route,
+                            option.startStopId,
+                            option.endStopId,
+                            option.startStopIndex,
+                            option.endStopIndex,
+                            selectedBuilding.id,
+                          )}
+                          className="flex w-full items-center gap-3 rounded-xl border p-3 text-left"
+                          style={{ borderColor: "var(--border)", background: "white" }}
+                        >
+                          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white" style={{ background: option.route.color }}>
+                            {option.route.label}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
+                              {getCanonicalStopName(option.startStop.name)} → {getCanonicalStopName(option.endStop.name)}
+                            </span>
+                            <span className="mt-0.5 block text-xs" style={{ color: "var(--muted)" }}>
+                              {option.rideMinutes} min bus · {Math.round(option.walkToStartMeters)} m to stop · {Math.round(option.walkToBuildingMeters)} m to building
+                            </span>
+                          </span>
+                          <span className="flex flex-shrink-0 flex-col items-end">
+                            <span className="text-xl font-extrabold leading-none" style={{ color: option.route.color }}>
+                              {option.arrivalMinutes === 0 ? "Now" : `${option.arrivalMinutes} min`}
+                            </span>
+                            <span className="mt-1 text-[10px]" style={{ color: "var(--muted)" }}>
+                              bus arrival
+                            </span>
+                          </span>
+                          <Icon path={ICONS.chevronRight} size={18} className="flex-shrink-0 opacity-50" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
+            <section>
+              <div className="px-4 pb-2 pt-5 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                Campus buildings
+              </div>
+              {filteredBuildings.slice(0, visibleBuildingCount).map((building) => {
+                const nearestStop = SEARCH_STOPS.reduce((nearest, stop) =>
+                  getDistance(building.lat, building.lng, stop.lat, stop.lng) <
+                  getDistance(building.lat, building.lng, nearest.lat, nearest.lng)
+                    ? stop
+                    : nearest,
+                SEARCH_STOPS[0]);
+                return (
+                  <button
+                    key={building.id}
+                    type="button"
+                    onClick={() => setSelectedBuildingId(building.id)}
+                    className="flex w-full items-center gap-4 border-b px-4 py-3.5 text-left"
+                    style={{
+                      borderColor: "var(--border)",
+                      background: selectedBuildingId === building.id ? "var(--purple-pale)" : "white",
+                    }}
+                  >
+                    <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl" style={{ background: "var(--purple-pale)", color: "var(--purple)" }}>
+                      <Icon path={ICONS.building} size={21} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
+                        {building.name}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--muted)" }}>
+                        Teaching · near {getCanonicalStopName(nearestStop.name)}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+              {visibleBuildingCount < filteredBuildings.length && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleBuildingCount((count) => count + 10)}
+                  className="w-full border-b px-4 py-3 text-sm font-semibold"
+                  style={{ borderColor: "var(--border)", color: "var(--purple)" }}
+                >
+                  Show 10 more buildings
+                </button>
+              )}
+            </section>
+
+            <section>
+              <div className="px-4 pb-2 pt-5 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                Bus stops
+              </div>
+              {filteredPhysicalStops.slice(0, visibleStopCount).map((stop) => (
+                <button
+                  key={stop.id}
+                  type="button"
+                  onClick={() => {
+                    const destination = SEARCH_STOPS.find((candidate) =>
+                      sameStopLocation(candidate, stop),
+                    );
+                    setTo(destination ?? null);
+                    setFrom(closestSearchStopId
+                      ? SEARCH_STOPS.find((candidate) => candidate.id === closestSearchStopId) ?? null
+                      : null);
+                    setResults(null);
+                    setSearchMode("routes");
+                  }}
+                  className="flex w-full items-center gap-4 border-b px-4 py-3.5 text-left"
+                  style={{ borderColor: "var(--border)", background: "white" }}
+                >
+                  <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl" style={{ background: "var(--bg)", color: "var(--purple)" }}>
+                    <Icon path={ICONS.locate} size={21} />
+                  </span>
+                  <span className="text-sm font-medium" style={{ color: "var(--text)" }}>
+                    {stop.name}
+                  </span>
+                </button>
+              ))}
+              {visibleStopCount < filteredPhysicalStops.length && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleStopCount((count) => count + 10)}
+                  className="w-full px-4 py-3 text-sm font-semibold"
+                  style={{ color: "var(--purple)" }}
+                >
+                  Show 10 more stops
+                </button>
+              )}
+            </section>
+            <div className="h-4" />
+          </div>
+        )}
+        {searchMode === "routes" && results !== null && (
           <div className="p-4 space-y-3">
             <div
               className="text-xs font-semibold uppercase tracking-widest"
@@ -378,7 +767,7 @@ export function SearchPage({
             )}
           </div>
         )}
-        {results === null && (
+        {searchMode === "routes" && results === null && (
           <div className="p-8 text-center" style={{ color: "var(--muted)" }}>
             <Icon
               path={ICONS.map}

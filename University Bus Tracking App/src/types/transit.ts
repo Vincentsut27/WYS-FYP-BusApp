@@ -6,6 +6,13 @@ export interface Stop {
   lng: number;
 }
 
+export interface CampusBuilding {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+}
+
 export interface Route {
   id: string;
   label: string;
@@ -18,6 +25,7 @@ export interface Route {
   stopIds: string[];
   travelTimesSeconds: number[];
   departureIntervals?: number[];
+  departureMinutes?: number[];
 }
 
 export type SearchStop = Stop & { searchIds: string[] };
