@@ -28,6 +28,14 @@ import "leaflet/dist/leaflet.css";
 const CAMPUS_CENTER: [number, number] = [22.419, 114.207];
 const ROUTE_ACCENT = "#7C2D9C";
 const ROUTE_HIGHLIGHT = "#8B5CF6";
+const ROAD_LINE_OPTIONS = {
+  smoothFactor: 0,
+  noClip: true,
+  lineCap: "round" as const,
+  lineJoin: "round" as const,
+};
+
+type BearingMap = L.Map & { _bearing?: number };
 
 function pathDistance2(first: [number, number], second: [number, number]) {
   const dLat = first[0] - second[0];
@@ -231,6 +239,7 @@ function getMapPaneScale(size: L.Point, rotation: number) {
 function applyMapBearing(map: L.Map, rotation: number) {
   const pane = map.getPane("mapPane");
   if (!pane) return;
+  (map as BearingMap)._bearing = rotation;
   const size = map.getSize();
   const panePos = L.DomUtil.getPosition(pane) ?? L.point(0, 0);
   const scale = getMapPaneScale(size, rotation);
@@ -249,19 +258,23 @@ function screenDeltaToMapDelta(dx: number, dy: number, rotation: number) {
 function MapBearing({ rotation }: { rotation: number }) {
   const map = useMap();
   const rotationRef = useRef(rotation);
-  rotationRef.current = rotation;
+  rotationRef.current = (map as BearingMap)._bearing ?? rotation;
   useEffect(() => {
-    const apply = () => applyMapBearing(map, rotation);
+    const apply = () =>
+      applyMapBearing(map, (map as BearingMap)._bearing ?? rotationRef.current);
     apply();
-    map.on("move zoom viewreset", apply);
+    map.on("moveend zoomend viewreset", apply);
     return () => {
-      map.off("move zoom viewreset", apply);
+      map.off("moveend zoomend viewreset", apply);
       const pane = map.getPane("mapPane");
       if (!pane) return;
       pane.style.rotate = "";
       pane.style.scale = "";
       pane.style.transformOrigin = "";
     };
+  }, [map]);
+  useEffect(() => {
+    applyMapBearing(map, rotation);
   }, [map, rotation]);
   useEffect(() => {
     const container = map.getContainer();
@@ -316,7 +329,8 @@ function MapTouchRotate({
   const startDistanceRef = useRef(0);
   const pendingRotationRef = useRef(0);
   const rotatingRef = useRef(false);
-  rotationRef.current = rotation;
+  const gestureActiveRef = useRef(false);
+  if (!gestureActiveRef.current) rotationRef.current = rotation;
   useEffect(() => {
     if (!enabled || !onRotationChange) return;
     const container = map.getContainer();
@@ -338,8 +352,14 @@ function MapTouchRotate({
       if (!first || !second) return 0;
       return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
     };
+    const commitRotation = (nextRotation: number) => {
+      rotationRef.current = nextRotation;
+      applyMapBearing(map, nextRotation);
+      onRotationChange(nextRotation);
+    };
     const onStart = (event: TouchEvent) => {
       const twoFingers = event.touches.length === 2;
+      gestureActiveRef.current = twoFingers;
       lastAngleRef.current = twoFingers ? touchAngle(event.touches) : null;
       startDistanceRef.current = twoFingers ? touchDistance(event.touches) : 0;
       pendingRotationRef.current = 0;
@@ -362,14 +382,17 @@ function MapTouchRotate({
         pendingRotationRef.current += delta;
         if (Math.abs(pendingRotationRef.current) < 12) return;
         rotatingRef.current = true;
-        onRotationChange(rotationRef.current + pendingRotationRef.current);
+        commitRotation(rotationRef.current + pendingRotationRef.current);
         pendingRotationRef.current = 0;
         return;
       }
-      onRotationChange(rotationRef.current + delta);
+      commitRotation(rotationRef.current + delta);
     };
     const onEnd = (event: TouchEvent) => {
-      if (event.touches.length < 2) lastAngleRef.current = null;
+      if (event.touches.length < 2) {
+        lastAngleRef.current = null;
+        gestureActiveRef.current = false;
+      }
     };
     container.addEventListener("touchstart", onStart, { passive: true });
     container.addEventListener("touchmove", onMove, { passive: true });
@@ -514,6 +537,10 @@ export function CampusMap({
   >(null);
   const [destinationGuidanceRoadPath, setDestinationGuidanceRoadPath] =
     useState<[number, number][] | null>(null);
+  const canvasRendererRef = useRef<L.Canvas | null>(null);
+  if (!canvasRendererRef.current) {
+    canvasRendererRef.current = L.canvas({ padding: 0.8 });
+  }
 
   useEffect(() => {
     if (!guidancePoints || guidancePoints.length < 2) {
@@ -595,6 +622,11 @@ export function CampusMap({
         center={CAMPUS_CENTER}
         zoom={15}
         zoomSnap={0.25}
+        zoomAnimation={false}
+        markerZoomAnimation={false}
+        fadeAnimation={false}
+        preferCanvas
+        renderer={canvasRendererRef.current}
         bounceAtZoomLimits={false}
         scrollWheelZoom={false}
         zoomControl={false}
@@ -612,6 +644,8 @@ export function CampusMap({
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          updateWhenZooming={false}
+          keepBuffer={4}
         />
         <MapViewport
           points={
@@ -635,7 +669,9 @@ export function CampusMap({
         {route && renderedPath.length > 1 && (
           <Polyline
             positions={renderedPath}
+            renderer={canvasRendererRef.current ?? undefined}
             pathOptions={{
+              ...ROAD_LINE_OPTIONS,
               color: routeColor,
               weight: 4,
               opacity: dimRoute ? 0.25 : 0.86,
@@ -652,12 +688,12 @@ export function CampusMap({
               <Polyline
                 key={`past-route-${piece.stopIndex}-${piece.startDistanceMeters}`}
                 positions={visiblePath}
+                renderer={canvasRendererRef.current ?? undefined}
                 pathOptions={{
+                  ...ROAD_LINE_OPTIONS,
                   color: routeColor,
                   weight: 6,
                   opacity,
-                  lineCap: "round",
-                  lineJoin: "round",
                 }}
               />
             );
@@ -665,7 +701,13 @@ export function CampusMap({
         {highlightRoadPath && highlightRoadPath.length > 1 && (
           <Polyline
             positions={highlightRoadPath}
-            pathOptions={{ color: ROUTE_HIGHLIGHT, weight: 6, opacity: 0.92 }}
+            renderer={canvasRendererRef.current ?? undefined}
+            pathOptions={{
+              ...ROAD_LINE_OPTIONS,
+              color: ROUTE_HIGHLIGHT,
+              weight: 6,
+              opacity: 0.92,
+            }}
           />
         )}
         {guidanceDots.map((point, index) => (
