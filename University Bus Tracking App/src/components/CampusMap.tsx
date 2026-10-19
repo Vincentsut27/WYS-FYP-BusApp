@@ -112,93 +112,85 @@ function sliceRoadPath(
   return sliced.length >= 2 ? sliced : null;
 }
 
+type MapViewportState = {
+  userAdjusted: boolean;
+  programmatic: boolean;
+};
+
+const mapViewportState = new WeakMap<L.Map, MapViewportState>();
+
+function getMapViewportState(map: L.Map) {
+  let state = mapViewportState.get(map);
+  if (!state) {
+    state = { userAdjusted: false, programmatic: false };
+    mapViewportState.set(map, state);
+  }
+  return state;
+}
+
+function runProgrammaticViewChange(map: L.Map, fn: () => void) {
+  const state = getMapViewportState(map);
+  state.programmatic = true;
+  try {
+    fn();
+  } finally {
+    state.programmatic = false;
+  }
+}
+
+function MapInteractionGuard({ resetKey }: { resetKey: string }) {
+  const map = useMap();
+
+  useEffect(() => {
+    getMapViewportState(map).userAdjusted = false;
+  }, [map, resetKey]);
+
+  useEffect(() => {
+    const state = getMapViewportState(map);
+    const markUser = () => {
+      if (!state.programmatic) state.userAdjusted = true;
+    };
+    map.on("dragstart zoomstart", markUser);
+    return () => {
+      map.off("dragstart zoomstart", markUser);
+    };
+  }, [map]);
+
+  return null;
+}
+
 function MapViewport({
   points,
-  rotation,
+  fitKey,
   locked = false,
 }: {
   points: [number, number][];
-  rotation: number;
+  fitKey: string;
   locked?: boolean;
 }) {
   const map = useMap();
+  const fittedKeyRef = useRef<string | null>(null);
   const pointsKey = points.map(([lat, lng]) => `${lat},${lng}`).join(";");
-  const rotationBaseZoomRef = useRef<number | null>(null);
-  const previousRotationRef = useRef(rotation);
-  const routePointsKeyRef = useRef(pointsKey);
+
   useEffect(() => {
     if (locked) return;
+    if (getMapViewportState(map).userAdjusted) return;
+    if (fittedKeyRef.current === fitKey) return;
     if (points.length === 1) {
-      map.setView(points[0], Math.max(map.getZoom(), 17), { animate: true });
+      runProgrammaticViewChange(map, () => {
+        map.setView(points[0], Math.max(map.getZoom(), 17), { animate: true });
+      });
+      fittedKeyRef.current = fitKey;
       return;
     }
-    if (points.length > 1)
-      map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
-  }, [locked, map, pointsKey]);
-
-  useEffect(() => {
-    const normalizedRotation = ((rotation % 360) + 360) % 360;
-    const previousRotation = ((previousRotationRef.current % 360) + 360) % 360;
-    const routeChanged = routePointsKeyRef.current !== pointsKey;
-    routePointsKeyRef.current = pointsKey;
-
-    if (normalizedRotation === 0) {
-      if (
-        previousRotation !== 0 &&
-        !routeChanged &&
-        rotationBaseZoomRef.current !== null
-      ) {
-        map.setZoom(rotationBaseZoomRef.current, { animate: false });
-      }
-      rotationBaseZoomRef.current = null;
-      previousRotationRef.current = rotation;
-      return;
+    if (points.length > 1) {
+      runProgrammaticViewChange(map, () => {
+        map.fitBounds(points, { padding: [24, 24], maxZoom: 16 });
+      });
+      fittedKeyRef.current = fitKey;
     }
+  }, [fitKey, locked, map, points, pointsKey]);
 
-    if (
-      previousRotation === 0 ||
-      routeChanged ||
-      rotationBaseZoomRef.current === null
-    ) {
-      rotationBaseZoomRef.current = map.getZoom();
-    }
-    previousRotationRef.current = rotation;
-
-    if (points.length < 2) return;
-    const size = map.getSize();
-    const center = L.point(size.x / 2, size.y / 2);
-    const radians = (normalizedRotation * Math.PI) / 180;
-    const cos = Math.cos(radians);
-    const sin = Math.sin(radians);
-    const mapPaneScale = getMapPaneScale(size, normalizedRotation);
-    const rotatedPoints = points.map((point) => {
-      const screenPoint = map.latLngToContainerPoint(point).subtract(center);
-      return L.point(
-        (screenPoint.x * cos - screenPoint.y * sin) * mapPaneScale,
-        (screenPoint.x * sin + screenPoint.y * cos) * mapPaneScale,
-      );
-    });
-    const horizontalExtent =
-      Math.max(...rotatedPoints.map((point) => point.x)) -
-      Math.min(...rotatedPoints.map((point) => point.x));
-    const verticalExtent =
-      Math.max(...rotatedPoints.map((point) => point.y)) -
-      Math.min(...rotatedPoints.map((point) => point.y));
-    const availableWidth = Math.max(1, size.x - 48);
-    const availableHeight = Math.max(1, size.y - 48);
-    const zoomScale = Math.min(
-      availableWidth / Math.max(1, horizontalExtent),
-      availableHeight / Math.max(1, verticalExtent),
-    );
-    const adjustedZoom = Math.min(
-      rotationBaseZoomRef.current,
-      map.getZoom() + Math.log2(zoomScale),
-    );
-    const targetZoom = Math.floor(adjustedZoom * 4) / 4;
-    if (Math.abs(targetZoom - map.getZoom()) >= 0.25) {
-      map.setZoom(targetZoom, { animate: false });
-    }
-  }, [map, pointsKey, rotation]);
   return null;
 }
 
@@ -212,13 +204,19 @@ function MapFocusStop({
   focusNonce?: number;
 }) {
   const map = useMap();
+  const lastNonceRef = useRef(focusNonce);
   useEffect(() => {
     if (!active || !stopId) return;
     const stop = STOPS[stopId];
     if (!stop) return;
-    map.stop();
-    map.invalidateSize({ animate: false });
-    map.setView([stop.lat, stop.lng], 17, { animate: false });
+    const nonceChanged = lastNonceRef.current !== focusNonce;
+    lastNonceRef.current = focusNonce;
+    if (!nonceChanged && getMapViewportState(map).userAdjusted) return;
+    runProgrammaticViewChange(map, () => {
+      map.stop();
+      map.invalidateSize({ animate: false });
+      map.setView([stop.lat, stop.lng], 17, { animate: false });
+    });
   }, [active, focusNonce, map, stopId]);
   return null;
 }
@@ -315,6 +313,9 @@ function MapTouchRotate({
   const map = useMap();
   const rotationRef = useRef(rotation);
   const lastAngleRef = useRef<number | null>(null);
+  const startDistanceRef = useRef(0);
+  const pendingRotationRef = useRef(0);
+  const rotatingRef = useRef(false);
   rotationRef.current = rotation;
   useEffect(() => {
     if (!enabled || !onRotationChange) return;
@@ -331,9 +332,18 @@ function MapTouchRotate({
         (180 / Math.PI)
       );
     };
+    const touchDistance = (touches: TouchList) => {
+      const first = touches.item(0);
+      const second = touches.item(1);
+      if (!first || !second) return 0;
+      return Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY);
+    };
     const onStart = (event: TouchEvent) => {
-      lastAngleRef.current =
-        event.touches.length === 2 ? touchAngle(event.touches) : null;
+      const twoFingers = event.touches.length === 2;
+      lastAngleRef.current = twoFingers ? touchAngle(event.touches) : null;
+      startDistanceRef.current = twoFingers ? touchDistance(event.touches) : 0;
+      pendingRotationRef.current = 0;
+      rotatingRef.current = false;
     };
     const onMove = (event: TouchEvent) => {
       if (event.touches.length !== 2 || lastAngleRef.current == null) return;
@@ -342,6 +352,20 @@ function MapTouchRotate({
       if (delta > 180) delta -= 360;
       if (delta < -180) delta += 360;
       lastAngleRef.current = nextAngle;
+      const distance = touchDistance(event.touches);
+      const scaleChange =
+        startDistanceRef.current > 0
+          ? Math.abs(distance / startDistanceRef.current - 1)
+          : 0;
+      if (!rotatingRef.current) {
+        if (scaleChange > 0.08) return;
+        pendingRotationRef.current += delta;
+        if (Math.abs(pendingRotationRef.current) < 12) return;
+        rotatingRef.current = true;
+        onRotationChange(rotationRef.current + pendingRotationRef.current);
+        pendingRotationRef.current = 0;
+        return;
+      }
       onRotationChange(rotationRef.current + delta);
     };
     const onEnd = (event: TouchEvent) => {
@@ -365,12 +389,35 @@ function MapSizeSync() {
   const map = useMap();
   useEffect(() => {
     const container = map.getContainer();
-    const resizeObserver = new ResizeObserver(() =>
-      map.invalidateSize({ animate: false }),
-    );
+    let resizeTimer: number | null = null;
+    let touching = false;
+    const onTouchStart = () => {
+      touching = true;
+    };
+    const onTouchEnd = () => {
+      touching = false;
+    };
+    const syncSize = () => {
+      if (touching) return;
+      map.invalidateSize({ animate: false });
+    };
+    const resizeObserver = new ResizeObserver(() => {
+      if (touching) return;
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(syncSize, 150);
+    });
     resizeObserver.observe(container);
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchend", onTouchEnd);
+    container.addEventListener("touchcancel", onTouchEnd);
     map.invalidateSize({ animate: false });
-    return () => resizeObserver.disconnect();
+    return () => {
+      resizeObserver.disconnect();
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchend", onTouchEnd);
+      container.removeEventListener("touchcancel", onTouchEnd);
+      if (resizeTimer !== null) window.clearTimeout(resizeTimer);
+    };
   }, [map]);
   return null;
 }
@@ -384,10 +431,12 @@ function UserMapFocus({
 }) {
   const map = useMap();
   useEffect(() => {
-    if (active && position) {
+    if (!active || !position) return;
+    if (getMapViewportState(map).userAdjusted) return;
+    runProgrammaticViewChange(map, () => {
       map.invalidateSize({ animate: false });
       map.setView(position, 17, { animate: true });
-    }
+    });
   }, [active, map, position]);
   return null;
 }
@@ -546,12 +595,14 @@ export function CampusMap({
         center={CAMPUS_CENTER}
         zoom={15}
         zoomSnap={0.25}
+        bounceAtZoomLimits={false}
         scrollWheelZoom={false}
         zoomControl={false}
         className="h-full w-full"
       >
         <ZoomControl position="bottomright" />
         <MapSizeSync />
+        <MapInteractionGuard resetKey={`${routeId ?? ""}:${focusNonce}`} />
         <MapBearing rotation={rotation} />
         <MapTouchRotate
           enabled={enableTouchRotate}
@@ -572,7 +623,7 @@ export function CampusMap({
                   ? renderedPath
                   : displayStops.map((stop) => [stop.lat, stop.lng])
           }
-          rotation={rotation}
+          fitKey={`${routeId ?? "none"}:${focusStopId ?? ""}:${guidancePoints ? "g" : ""}:${destinationGuidancePoints ? "d" : ""}:${highlightPath?.length ? "h" : ""}`}
           locked={Boolean(focusStopId)}
         />
         <MapFocusStop
