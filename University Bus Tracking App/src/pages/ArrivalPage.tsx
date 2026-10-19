@@ -293,7 +293,7 @@ export function ArrivalPage({
                           className="text-sm font-semibold"
                           style={{ color: "var(--text)" }}
                         >
-                          {route.description}
+                          {route.title ?? route.description}
                         </div>
                         {nextStop && (
                           <div

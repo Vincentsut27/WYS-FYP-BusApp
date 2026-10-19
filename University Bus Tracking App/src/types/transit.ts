@@ -16,6 +16,7 @@ export interface CampusBuilding {
 export interface Route {
   id: string;
   label: string;
+  title?: string;
   description: string;
   color: string;
   operatingDays: string;

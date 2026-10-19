@@ -10,6 +10,7 @@ import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
 import {
   getCanonicalStopName,
   getDistance,
+  getRouteTitle,
   playArrivalTone,
 } from "../lib/transit";
 import { supabase } from "../lib/supabase";
@@ -600,7 +601,7 @@ export function TrackPage({
                   className="text-sm font-semibold"
                   style={{ color: "var(--text)" }}
                 >
-                  {route.description}
+                  {route.title ?? route.description}
                 </div>
                 <div className="text-xs" style={{ color: "var(--muted)" }}>
                   {route.stopIds.length} stops · {route.serviceHours}
@@ -1007,7 +1008,7 @@ export function TrackPage({
                 style={{ color: "var(--text)" }}
               >
                 {selectedRoute
-                  ? `Route ${selectedRoute.label} – ${selectedRoute.description}`
+                  ? `Route ${getRouteTitle(selectedRoute)} – ${selectedRoute.description}`
                   : "Select a route"}
               </div>
               <div className="text-xs" style={{ color: "var(--muted)" }}>
@@ -1265,7 +1266,7 @@ export function TrackPage({
             </div>
             <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
               {destinationBuilding && destStop
-                ? `Your destination is ${destinationBuilding.name}. Take ${selectedRoute?.label ?? "the bus"} to ${getCanonicalStopName(destStop.name)}, then follow the walking dots.`
+                ? `Your destination is ${destinationBuilding.name}. Take ${selectedRoute ? getRouteTitle(selectedRoute) : "the bus"} to ${getCanonicalStopName(destStop.name)}, then follow the walking dots.`
                 : destStop
                   ? `Your destination is ${destStop.name}. Start now for live trip tracking and an arrival alert.`
                 : selectedRoute

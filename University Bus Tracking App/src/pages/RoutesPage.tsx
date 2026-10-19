@@ -3,7 +3,7 @@ import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
-import { getRouteArrivalMinutes } from "../lib/transit";
+import { getRouteArrivalMinutes, getRouteTitle } from "../lib/transit";
 import type { Route } from "../types/transit";
 
 export function RoutesPage({
@@ -59,7 +59,7 @@ export function RoutesPage({
               className="text-lg font-bold"
               style={{ color: selectedRoute.color }}
             >
-              Route {selectedRoute.label}
+              Route {getRouteTitle(selectedRoute)}
             </span>
             <span
               className="text-sm font-medium"
@@ -314,12 +314,12 @@ export function RoutesPage({
             >
               {route.label}
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div
                 className="text-base font-semibold"
                 style={{ color: "var(--text)" }}
               >
-                {route.label}
+                {getRouteTitle(route)}
               </div>
               <div className="text-sm" style={{ color: "var(--muted)" }}>
                 {route.description}

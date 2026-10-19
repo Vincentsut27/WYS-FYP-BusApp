@@ -635,7 +635,7 @@ export function SearchPage({
                           className="text-sm font-bold"
                           style={{ color: "var(--text)" }}
                         >
-                          {route.description}
+                          {route.title ?? route.description}
                         </div>
                         <div
                           className="text-xs"

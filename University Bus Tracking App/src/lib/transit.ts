@@ -1,6 +1,10 @@
 import { STOPS } from "../data/routes";
 import type { Route, SearchStop, Stop } from "../types/transit";
 
+export function getRouteTitle(route: Pick<Route, "label" | "title">) {
+  return route.title ?? route.label;
+}
+
 export function getArrivals(stopId: string) {
   const seed = stopId.charCodeAt(0) + stopId.charCodeAt(stopId.length - 1);
   const base = [3, 8, 18, 23, 33];
