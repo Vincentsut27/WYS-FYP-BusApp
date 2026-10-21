@@ -769,7 +769,7 @@ export function CampusMap({
             position={userPos}
             icon={L.divIcon({
               className: "user-direction-marker",
-              html: `<svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading - rotation}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;"><polygon points="32,4 56,46 40,46 40,60 24,60 24,46 8,46" fill="#2563EB" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linejoin="round" /></svg>`,
+              html: `<svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;"><polygon points="32,4 56,46 40,46 40,60 24,60 24,46 8,46" fill="#2563EB" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linejoin="round" /></svg>`,
               iconSize: [28, 28],
               iconAnchor: [14, 14],
               popupAnchor: [0, -18],

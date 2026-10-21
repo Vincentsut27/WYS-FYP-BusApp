@@ -17,6 +17,8 @@ import { supabase } from "../lib/supabase";
 import type { CampusBuilding, Route, Stop } from "../types/transit";
 
 const TRIP_SURVEY_SEEN_KEY = "cuhk-bus-trip-survey-seen";
+const GUIDANCE_HIDE_METERS = 8;
+const DEST_STOP_ALERT_METERS = 50;
 
 export function TrackPage({
   isActive = true,
@@ -347,7 +349,14 @@ export function TrackPage({
 
   useEffect(() => {
     if (!userPosition || !startStop || startGuidanceDismissed) return;
-    if (getDistance(userPosition[0], userPosition[1], startStop.lat, startStop.lng) <= 5) {
+    if (
+      getDistance(
+        userPosition[0],
+        userPosition[1],
+        startStop.lat,
+        startStop.lng,
+      ) <= GUIDANCE_HIDE_METERS
+    ) {
       setStartGuidanceDismissed(true);
     }
   }, [userPosition, startStop, startGuidanceDismissed]);
@@ -392,12 +401,40 @@ export function TrackPage({
         appliedPresetRevisionRef.current !== (presetRevision ?? 0)) ||
       !tripStarted ||
       !destStop ||
-      destinationRouteIndex < 0 ||
-      !tripProgress.confident ||
-      tripProgress.currentStopIndex === null ||
-      tripProgress.currentStopIndex < destinationRouteIndex
+      destinationRouteIndex < 0
     )
       return;
+
+    const startIndex = tripStartStopIndex ?? 0;
+    const reachedAlongRoute =
+      tripProgress.confident &&
+      tripProgress.currentStopIndex !== null &&
+      tripProgress.currentStopIndex >= destinationRouteIndex;
+    const distanceToDest = userPosition
+      ? getDistance(
+          userPosition[0],
+          userPosition[1],
+          destStop.lat,
+          destStop.lng,
+        )
+      : Infinity;
+    const leftStart =
+      tripProgress.currentStopIndex !== null &&
+      tripProgress.currentStopIndex > startIndex
+        ? true
+        : Boolean(
+            startStop &&
+              userPosition &&
+              getDistance(
+                userPosition[0],
+                userPosition[1],
+                startStop.lat,
+                startStop.lng,
+              ) > 80,
+          );
+    const nearDestStop =
+      distanceToDest <= DEST_STOP_ALERT_METERS && leftStart;
+    if (!reachedAlongRoute && !nearDestStop) return;
 
     if (destinationBuilding) {
       if (buildingWalkStarted) return;
@@ -443,6 +480,9 @@ export function TrackPage({
     arrivalNotificationsEnabled,
     presetRouteId,
     presetRevision,
+    tripStartStopIndex,
+    userPosition,
+    startStop,
   ]);
 
   useEffect(() => {
@@ -456,7 +496,7 @@ export function TrackPage({
         userPosition[1],
         destinationBuilding.lat,
         destinationBuilding.lng,
-      ) > 5
+      ) > GUIDANCE_HIDE_METERS
     ) {
       return;
     }
