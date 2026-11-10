@@ -15,6 +15,7 @@ import {
   SEARCH_STOPS,
   sameStopLocation,
 } from "../lib/transit";
+import { recordUsage } from "../lib/usage";
 import type { CampusBuilding, Route, SearchStop, Stop } from "../types/transit";
 
 interface BuildingRouteOption {
@@ -254,6 +255,7 @@ export function SearchPage({
 
   function search() {
     if (!from || !to) return;
+    recordUsage("search");
     const now = new Date();
     const directRoutes = ROUTES.filter((route) =>
       getSearchRouteTrip(route, from, to),
@@ -434,14 +436,17 @@ export function SearchPage({
                         <button
                           key={`${option.route.id}-${option.startStopId}-${option.endStopId}`}
                           type="button"
-                          onClick={() => onTrackBuilding(
-                            option.route,
-                            option.startStopId,
-                            option.endStopId,
-                            option.startStopIndex,
-                            option.endStopIndex,
-                            selectedBuilding.id,
-                          )}
+                          onClick={() => {
+                            recordUsage("search");
+                            onTrackBuilding(
+                              option.route,
+                              option.startStopId,
+                              option.endStopId,
+                              option.startStopIndex,
+                              option.endStopIndex,
+                              selectedBuilding.id,
+                            );
+                          }}
                           className="flex w-full items-center gap-3 rounded-xl border p-3 text-left"
                           style={{ borderColor: "var(--border)", background: "white" }}
                         >

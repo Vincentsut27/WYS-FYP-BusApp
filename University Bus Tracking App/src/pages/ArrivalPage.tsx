@@ -14,6 +14,7 @@ import {
   getRouteArrivalMinutes,
   sameStopLocation,
 } from "../lib/transit";
+import { recordUsage } from "../lib/usage";
 import type { Route, Stop } from "../types/transit";
 
 function getNextRouteArrival(
@@ -174,6 +175,10 @@ export function ArrivalPage({
   const { locale, t } = useI18n();
   const [subTab, setSubTab] = useState<"nearby" | "stops">("nearby");
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
+  const openStop = (stop: Stop) => {
+    setSelectedStop(stop);
+    recordUsage("arrival");
+  };
   const currentTime = useCurrentMinute();
   const userPos: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
@@ -394,7 +399,7 @@ export function ArrivalPage({
           showAllStops
           userPos={userPos}
           height={190}
-          onStopClick={setSelectedStop}
+          onStopClick={openStop}
           userHeading={userHeading ?? 0}
         />
       </div>
@@ -416,7 +421,7 @@ export function ArrivalPage({
             return (
               <button
                 key={stop.id}
-                onClick={() => setSelectedStop(stop)}
+                onClick={() => openStop(stop)}
                 className="w-full flex items-center px-4 py-3.5 border-b text-left gap-3 active:bg-gray-50"
                 style={{ borderColor: "var(--border)" }}
               >

@@ -12,6 +12,15 @@ export type LocationReport = {
   reported_at: string;
 };
 
+export type UsageFeature = "start_trip" | "search" | "arrival" | "route";
+
+export type AppUsage = {
+  id: string;
+  visitor_id: string;
+  feature: UsageFeature;
+  used_at: string;
+};
+
 export type TripFeedback = {
   id: string;
   route_id: string | null;
@@ -31,6 +40,15 @@ type Database = {
           reported_at?: string;
         };
         Update: Partial<LocationReport>;
+        Relationships: [];
+      };
+      app_usage: {
+        Row: AppUsage;
+        Insert: Omit<AppUsage, "id" | "used_at"> & {
+          id?: string;
+          used_at?: string;
+        };
+        Update: Partial<AppUsage>;
         Relationships: [];
       };
       trip_feedback: {

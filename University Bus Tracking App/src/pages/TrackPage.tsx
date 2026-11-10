@@ -22,6 +22,7 @@ import {
   playArrivalTone,
 } from "../lib/transit";
 import { supabase } from "../lib/supabase";
+import { recordUsage } from "../lib/usage";
 import type { CampusBuilding, Route, Stop } from "../types/transit";
 
 const TRIP_SURVEY_SEEN_KEY = "cuhk-bus-trip-survey-seen";
@@ -384,6 +385,7 @@ export function TrackPage({
       setShowRoutePicker(true);
       return;
     }
+    recordUsage("start_trip");
     const selectedStartIndex =
       startStopRouteIndex ??
       routeStops.findIndex((stop) => stop.id === startStop?.id);

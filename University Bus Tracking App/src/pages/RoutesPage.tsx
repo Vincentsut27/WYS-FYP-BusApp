@@ -13,6 +13,7 @@ import {
 } from "../i18n/content";
 import { useI18n } from "../i18n/LanguageProvider";
 import { getRouteArrivalMinutes } from "../lib/transit";
+import { recordUsage } from "../lib/usage";
 import type { Route } from "../types/transit";
 
 export function RoutesPage({
@@ -44,6 +45,7 @@ export function RoutesPage({
     setSelectedRoute(route);
     setHighlightIndex(stopIndex);
     setFocusNonce((value) => value + 1);
+    recordUsage("route");
     onPresetApplied();
   }, [presetRouteId, presetStopId, onPresetApplied]);
 
@@ -326,7 +328,10 @@ export function RoutesPage({
         {ROUTES.map((route) => (
           <button
             key={route.id}
-            onClick={() => setSelectedRoute(route)}
+            onClick={() => {
+              setSelectedRoute(route);
+              recordUsage("route");
+            }}
             className="w-full flex items-center px-5 py-4 border-b text-left gap-4 active:bg-gray-50"
             style={{ borderColor: "var(--border)" }}
           >
