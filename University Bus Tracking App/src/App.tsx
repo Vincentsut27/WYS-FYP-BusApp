@@ -7,6 +7,7 @@ import { ArrivalPage } from "@/pages/ArrivalPage";
 import { RoutesPage } from "./pages/RoutesPage";
 import { SearchPage } from "./pages/SearchPage";
 import { TrackPage } from "./pages/TrackPage";
+import { getSearchRouteTrip } from "./lib/transit";
 import type { Route, SearchStop } from "./types/transit";
 
 export default function App() {
@@ -31,13 +32,15 @@ export default function App() {
   const gps = useGpsLocation();
 
   const handleTrackRoute = (route: Route, from: SearchStop, to: SearchStop) => {
-    const startStopId =
-      from.searchIds.find((stopId) => route.stopIds.includes(stopId)) ??
-      from.searchIds[0];
-    const endStopId =
-      to.searchIds.find((stopId) => route.stopIds.includes(stopId)) ??
-      to.searchIds[0];
-    setTrackPreset({ routeId: route.id, startStopId, endStopId });
+    const trip = getSearchRouteTrip(route, from, to);
+    if (!trip) return;
+    setTrackPreset({
+      routeId: route.id,
+      startStopId: route.stopIds[trip.startIndex],
+      endStopId: route.stopIds[trip.endIndex],
+      startStopIndex: trip.startIndex,
+      endStopIndex: trip.endIndex,
+    });
     setTrackPresetRevision((revision) => revision + 1);
     setTab("track");
   };
@@ -96,6 +99,7 @@ export default function App() {
         <div className="flex-1 relative overflow-hidden">
           <TrackPage
             gpsPosition={gps.position}
+            filteredGpsPosition={gps.filteredPosition}
             gpsError={gps.error}
             userHeading={gps.heading}
           />
@@ -138,6 +142,7 @@ export default function App() {
               <TrackPage
                 isActive={tab === "track"}
                 gpsPosition={gps.position}
+                filteredGpsPosition={gps.filteredPosition}
                 gpsError={gps.error}
                 userHeading={gps.heading}
                 presetRouteId={trackPreset?.routeId}

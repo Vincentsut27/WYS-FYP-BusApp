@@ -1,6 +1,5 @@
 import { Icon, ICONS } from "../components/Icon";
-
-const CONTACT_EMAIL = "your-email@gmail.com";
+import { CONTACT_EMAIL, FEEDBACK_FORM_URL } from "../lib/links";
 
 export function AboutPage() {
   return (
@@ -39,6 +38,16 @@ export function AboutPage() {
           >
             <Icon path={ICONS.info} size={16} />
             {CONTACT_EMAIL}
+          </a>
+          <a
+            href={FEEDBACK_FORM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 flex min-h-10 items-center gap-2 text-sm font-semibold"
+            style={{ color: "var(--purple)" }}
+          >
+            <Icon path={ICONS.info} size={16} />
+            Feedback
           </a>
         </section>
         <p className="pt-4 text-xs leading-5" style={{ color: "var(--muted)" }}>

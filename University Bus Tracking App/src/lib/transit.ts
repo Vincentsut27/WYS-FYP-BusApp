@@ -167,29 +167,41 @@ export const SEARCH_STOPS: SearchStop[] = Object.values(STOPS).reduce<SearchStop
   return stops;
 }, []);
 
-export function getSearchRouteTrip(route: Route, from: SearchStop, to: SearchStop) {
-  const fromIndexes = from.searchIds.flatMap((id) => route.stopIds.flatMap((stopId, index) => stopId === id ? [index] : []));
-  const toIndexes = to.searchIds.flatMap((id) => route.stopIds.flatMap((stopId, index) => stopId === id ? [index] : []));
-  const trips: {
-    stops: string[];
-    count: number;
-    startIndex: number;
-    endIndex: number;
-  }[] = [];
+export function getSearchRouteTrip(
+  route: Route,
+  from: SearchStop,
+  to: SearchStop,
+) {
+  const fromIndexes = from.searchIds.flatMap((id) =>
+    route.stopIds.flatMap((stopId, index) => (stopId === id ? [index] : [])),
+  );
+  const toIndexes = to.searchIds.flatMap((id) =>
+    route.stopIds.flatMap((stopId, index) => (stopId === id ? [index] : [])),
+  );
+  const trips = fromIndexes.flatMap((startIndex) =>
+    toIndexes.flatMap((endIndex) => {
+      if (endIndex <= startIndex) return [];
+      return [
+        {
+          stops: route.stopIds.slice(startIndex, endIndex + 1),
+          count: endIndex - startIndex,
+          travelTimeSeconds: route.travelTimesSeconds
+            .slice(startIndex, endIndex)
+            .reduce((total, seconds) => total + seconds, 0),
+          startIndex,
+          endIndex,
+        },
+      ];
+    }),
+  );
 
-  fromIndexes.forEach((fromIndex) => toIndexes.forEach((toIndex) => {
-    if (toIndex <= fromIndex) return;
-    const count = toIndex - fromIndex;
-    if (trips.some((trip) => trip.count <= count)) return;
-    trips.push({
-      stops: route.stopIds.slice(fromIndex, toIndex + 1),
-      count,
-      startIndex: fromIndex,
-      endIndex: toIndex,
-    });
-  }));
-
-  return trips.sort((first, second) => first.count - second.count)[0] ?? null;
+  return (
+    trips.sort(
+      (first, second) =>
+        first.travelTimeSeconds - second.travelTimeSeconds ||
+        first.count - second.count,
+    )[0] ?? null
+  );
 }
 
 function toMinutes(value: string) {

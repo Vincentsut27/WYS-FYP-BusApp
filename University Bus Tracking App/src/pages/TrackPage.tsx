@@ -17,12 +17,13 @@ import { supabase } from "../lib/supabase";
 import type { CampusBuilding, Route, Stop } from "../types/transit";
 
 const TRIP_SURVEY_SEEN_KEY = "cuhk-bus-trip-survey-seen";
-const GUIDANCE_HIDE_METERS = 8;
-const DEST_STOP_ALERT_METERS = 50;
+const GUIDANCE_HIDE_METERS = 13;
+const DEST_STOP_ALERT_METERS = 75;
 
 export function TrackPage({
   isActive = true,
   gpsPosition,
+  filteredGpsPosition,
   gpsError,
   userHeading,
   presetRouteId,
@@ -35,6 +36,7 @@ export function TrackPage({
 }: {
   isActive?: boolean;
   gpsPosition: GeolocationPosition | null;
+  filteredGpsPosition: GeolocationPosition | null;
   gpsError: string | null;
   userHeading?: number | null;
   presetRouteId?: string;
@@ -109,7 +111,7 @@ export function TrackPage({
   const trackingPosition = userPosition;
   const tripProgress = useTripProgress(
     routeGeometry,
-    gpsPosition,
+    filteredGpsPosition,
     tripStarted,
     tripStartStopIndex,
   );

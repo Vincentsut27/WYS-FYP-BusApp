@@ -151,10 +151,9 @@ export function loadWalkingPath(stops: Coordinate[]) {
     if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) {
       return null;
     }
-    const roadPath = routeCoordinates.map(
+    return routeCoordinates.map(
       ([longitude, latitude]) => [latitude, longitude] as Coordinate,
     );
-    return [stops[0], ...roadPath, stops[stops.length - 1]];
   })().catch(() => null);
 
   walkingRouteCache.set(coordinatesKey, request);

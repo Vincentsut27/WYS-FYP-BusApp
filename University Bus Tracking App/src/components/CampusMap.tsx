@@ -102,6 +102,27 @@ function samplePath(
   return markers;
 }
 
+const GUIDANCE_REFRESH_METERS = 35;
+
+function guidanceRouteKey(points: [number, number][]) {
+  const origin = points[0];
+  const destination = points[points.length - 1];
+  const cell = GUIDANCE_REFRESH_METERS / 111000;
+  const quantize = (value: number) => Math.round(value / cell) * cell;
+  return [
+    quantize(origin[0]).toFixed(5),
+    quantize(origin[1]).toFixed(5),
+    destination[0].toFixed(6),
+    destination[1].toFixed(6),
+  ].join(",");
+}
+
+function isFollowableRoadPath(
+  path: [number, number][] | null,
+): path is [number, number][] {
+  return !!path && path.length >= 3;
+}
+
 function sliceRoadPath(
   roadPath: [number, number][],
   waypoints: [number, number][],
@@ -538,40 +559,50 @@ export function CampusMap({
   const [destinationGuidanceRoadPath, setDestinationGuidanceRoadPath] =
     useState<[number, number][] | null>(null);
   const canvasRendererRef = useRef<L.Canvas | null>(null);
+  const guidanceRequestKeyRef = useRef<string | null>(null);
+  const destinationGuidanceRequestKeyRef = useRef<string | null>(null);
   if (!canvasRendererRef.current) {
     canvasRendererRef.current = L.canvas({ padding: 0.8 });
   }
 
   useEffect(() => {
     if (!guidancePoints || guidancePoints.length < 2) {
+      guidanceRequestKeyRef.current = null;
       setGuidanceRoadPath(null);
       return;
     }
-    let active = true;
-    setGuidanceRoadPath(guidancePoints);
-    loadWalkingPath(guidancePoints).then((path) => {
-      if (active) setGuidanceRoadPath(path ?? guidancePoints);
+    const requestKey = guidanceRouteKey(guidancePoints);
+    if (guidanceRequestKeyRef.current === requestKey) return;
+    guidanceRequestKeyRef.current = requestKey;
+    const requestPoints = guidancePoints;
+    loadWalkingPath(requestPoints).then((path) => {
+      if (guidanceRequestKeyRef.current !== requestKey) return;
+      if (!isFollowableRoadPath(path)) {
+        guidanceRequestKeyRef.current = null;
+        return;
+      }
+      setGuidanceRoadPath(path);
     });
-    return () => {
-      active = false;
-    };
   }, [guidancePoints]);
 
   useEffect(() => {
     if (!destinationGuidancePoints || destinationGuidancePoints.length < 2) {
+      destinationGuidanceRequestKeyRef.current = null;
       setDestinationGuidanceRoadPath(null);
       return;
     }
-    let active = true;
-    setDestinationGuidanceRoadPath(destinationGuidancePoints);
-    loadWalkingPath(destinationGuidancePoints).then((path) => {
-      if (active) {
-        setDestinationGuidanceRoadPath(path ?? destinationGuidancePoints);
+    const requestKey = guidanceRouteKey(destinationGuidancePoints);
+    if (destinationGuidanceRequestKeyRef.current === requestKey) return;
+    destinationGuidanceRequestKeyRef.current = requestKey;
+    const requestPoints = destinationGuidancePoints;
+    loadWalkingPath(requestPoints).then((path) => {
+      if (destinationGuidanceRequestKeyRef.current !== requestKey) return;
+      if (!isFollowableRoadPath(path)) {
+        destinationGuidanceRequestKeyRef.current = null;
+        return;
       }
+      setDestinationGuidanceRoadPath(path);
     });
-    return () => {
-      active = false;
-    };
   }, [destinationGuidancePoints]);
 
   useEffect(() => {
@@ -769,7 +800,7 @@ export function CampusMap({
             position={userPos}
             icon={L.divIcon({
               className: "user-direction-marker",
-              html: `<svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading}deg);filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;"><polygon points="32,4 56,46 40,46 40,60 24,60 24,46 8,46" fill="#2563EB" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linejoin="round" /></svg>`,
+              html: `<svg width="28" height="28" viewBox="0 0 64 64" style="transform:rotate(${userHeading}deg);transform-origin:center;filter:drop-shadow(0 3px 5px rgba(0,0,0,0.35));overflow:visible;"><polygon points="32,4 56,46 40,46 40,60 24,60 24,46 8,46" fill="#2563EB" stroke="rgba(255,255,255,0.9)" stroke-width="3" stroke-linejoin="round" /></svg>`,
               iconSize: [28, 28],
               iconAnchor: [14, 14],
               popupAnchor: [0, -18],
