@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Icon, ICONS } from "../components/Icon";
-import { CAMPUS_BUILDINGS, formatBuildingName } from "../data/buildings";
+import { CAMPUS_BUILDINGS } from "../data/buildings";
 import { ROUTES, STOPS } from "../data/routes";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
+import { buildingLabel, routeHeading, stopLabel } from "../i18n/content";
+import { useI18n } from "../i18n/LanguageProvider";
 import {
-  getCanonicalStopName,
   getDistance,
   getRouteArrivalMinutes,
   getSearchRouteTrip,
@@ -110,6 +111,7 @@ export function SearchPage({
   gpsPosition: GeolocationPosition | null;
   onRequestGps: () => void;
 }) {
+  const { locale, t } = useI18n();
   const [searchMode, setSearchMode] = useState<"places" | "routes">("places");
   const [from, setFrom] = useState<SearchStop | null>(null);
   const [to, setTo] = useState<SearchStop | null>(null);
@@ -150,17 +152,23 @@ export function SearchPage({
           : closest;
       }, "")
     : null;
-  const filtered = SEARCH_STOPS.filter((stop) =>
-    stop.name.toLowerCase().includes(query.toLowerCase()),
-  );
+  const filtered = SEARCH_STOPS.filter((stop) => {
+    const needle = query.trim().toLowerCase();
+    return (
+      stop.name.toLowerCase().includes(needle) ||
+      stop.nameZh.toLowerCase().includes(needle)
+    );
+  });
   const physicalStops = getPhysicalStops();
   const placeSearch = placeQuery.trim().toLowerCase();
   const filteredBuildings = CAMPUS_BUILDINGS.filter((building) =>
     building.name.toLowerCase().includes(placeSearch) ||
+    building.nameZh.toLowerCase().includes(placeSearch) ||
     building.abbr.toLowerCase().includes(placeSearch),
   );
   const filteredPhysicalStops = physicalStops.filter((stop) =>
-    stop.name.toLowerCase().includes(placeQuery.toLowerCase()),
+    stop.name.toLowerCase().includes(placeSearch) ||
+    stop.nameZh.toLowerCase().includes(placeSearch),
   );
   const selectedBuilding = CAMPUS_BUILDINGS.find(
     (building) => building.id === selectedBuildingId,
@@ -273,9 +281,9 @@ export function SearchPage({
           className="text-xl font-extrabold mb-4"
           style={{ color: "var(--text)" }}
         >
-          {searchMode === "places" ? "Where are you going?" : "Stop-To-Stop Search"}
+          {searchMode === "places" ? t("placesTitle") : t("stopSearchTitle")}
         </h1>
-        <div className="mb-4 grid grid-cols-2 rounded-xl bg-gray-100 p-1" role="tablist" aria-label="Search mode">
+        <div className="mb-4 grid grid-cols-2 rounded-xl bg-gray-100 p-1" role="tablist" aria-label={t("searchMode")}>
           <button
             type="button"
             role="tab"
@@ -287,7 +295,7 @@ export function SearchPage({
               background: searchMode === "places" ? "white" : "transparent",
             }}
           >
-            Places
+            {t("places")}
           </button>
           <button
             type="button"
@@ -300,7 +308,7 @@ export function SearchPage({
               background: searchMode === "routes" ? "white" : "transparent",
             }}
           >
-            Bus routes
+            {t("busRoutes")}
           </button>
         </div>
         {searchMode === "routes" ? (
@@ -320,7 +328,7 @@ export function SearchPage({
               className={from ? "text-sm font-medium" : "text-sm"}
               style={{ color: from ? "var(--text)" : "var(--muted)" }}
             >
-              {from ? from.name : "Select starting stop"}
+              {from ? stopLabel(from, locale) : t("selectStart")}
             </span>
           </button>
           <button
@@ -344,7 +352,7 @@ export function SearchPage({
               className={to ? "text-sm font-medium" : "text-sm"}
               style={{ color: to ? "var(--text)" : "var(--muted)" }}
             >
-              {to ? to.name : "Select destination stop"}
+              {to ? stopLabel(to, locale) : t("selectDest")}
             </span>
           </button>
         </div>
@@ -357,14 +365,14 @@ export function SearchPage({
             opacity: from && to ? 1 : 0.5,
           }}
         >
-          Search Routes
+          {t("searchRoutes")}
         </button>
           </>
         ) : (
           <input
             value={placeQuery}
             onChange={(event) => setPlaceQuery(event.target.value)}
-            placeholder="Search buildings or stops..."
+            placeholder={t("searchPlaces")}
             className="w-full rounded-2xl border px-4 py-3.5 text-sm outline-none"
             style={{
               borderColor: "var(--border)",
@@ -382,14 +390,14 @@ export function SearchPage({
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-                      Selected destination
+                      {t("selectedDestination")}
                     </div>
                     <div className="mt-1 text-base font-bold" style={{ color: "var(--text)" }}>
-                      {formatBuildingName(selectedBuilding)}
+                      {buildingLabel(selectedBuilding, locale)}
                     </div>
                     {buildingNearestStop && (
                       <div className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-                        To: {getCanonicalStopName(buildingNearestStop.name)}
+                        {t("toStop", { stop: stopLabel(buildingNearestStop, locale) })}
                       </div>
                     )}
                   </div>
@@ -398,7 +406,7 @@ export function SearchPage({
                     onClick={() => setSelectedBuildingId(null)}
                     className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full"
                     style={{ background: "var(--bg)", color: "var(--muted)" }}
-                    aria-label="Clear selected building"
+                    aria-label={t("clearBuilding")}
                   >
                     <Icon path={ICONS.x} size={16} />
                   </button>
@@ -410,16 +418,16 @@ export function SearchPage({
                     className="mt-2 w-full rounded-xl py-3 text-sm font-semibold text-white"
                     style={{ background: "var(--purple)" }}
                   >
-                    Enable location to find bus routes
+                    {t("enableLocationRoutes")}
                   </button>
                 ) : buildingRoutes.length === 0 ? (
                   <div className="mt-3 rounded-xl px-3 py-3 text-sm" style={{ background: "var(--bg)", color: "var(--muted)" }}>
-                    No bus service connects your three nearest stops to this building right now.
+                    {t("noBuildingRoutes")}
                   </div>
                 ) : (
                   <div className="mt-3">
                     <div className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-                      Direct bus routes
+                      {t("directRoutes")}
                     </div>
                     <div className="space-y-2">
                       {buildingRoutes.map((option) => (
@@ -442,18 +450,18 @@ export function SearchPage({
                           </span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
-                              {getCanonicalStopName(option.startStop.name)} → {getCanonicalStopName(option.endStop.name)}
+                              {stopLabel(option.startStop, locale)} → {stopLabel(option.endStop, locale)}
                             </span>
                             <span className="mt-0.5 block text-xs" style={{ color: "var(--muted)" }}>
-                              {option.rideMinutes} min bus · {Math.round(option.walkToStartMeters)} m to stop · {Math.round(option.walkToBuildingMeters)} m to building
+                              {t("rideWalk", { ride: option.rideMinutes, toStop: Math.round(option.walkToStartMeters), toBuilding: Math.round(option.walkToBuildingMeters) })}
                             </span>
                           </span>
                           <span className="flex flex-shrink-0 flex-col items-end">
                             <span className="text-xl font-extrabold leading-none" style={{ color: option.route.color }}>
-                              {option.arrivalMinutes === 0 ? "Now" : `${option.arrivalMinutes} min`}
+                              {option.arrivalMinutes === 0 ? t("now") : t("minutes", { count: option.arrivalMinutes })}
                             </span>
                             <span className="mt-1 text-[10px]" style={{ color: "var(--muted)" }}>
-                              bus arrival
+                              {t("busArrival")}
                             </span>
                           </span>
                           <Icon path={ICONS.chevronRight} size={18} className="flex-shrink-0 opacity-50" />
@@ -467,7 +475,7 @@ export function SearchPage({
 
             <section>
               <div className="px-4 pb-2 pt-5 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-                Campus buildings
+                {t("campusBuildings")}
               </div>
               {filteredBuildings.slice(0, visibleBuildingCount).map((building) => {
                 const nearestStop = SEARCH_STOPS.reduce((nearest, stop) =>
@@ -492,10 +500,10 @@ export function SearchPage({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
-                        {formatBuildingName(building)}
+                        {buildingLabel(building, locale)}
                       </span>
                       <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--muted)" }}>
-                        Teaching · near {getCanonicalStopName(nearestStop.name)}
+                        {t("teachingNear", { stop: stopLabel(nearestStop, locale) })}
                       </span>
                     </span>
                   </button>
@@ -508,14 +516,14 @@ export function SearchPage({
                   className="w-full border-b px-4 py-3 text-sm font-semibold"
                   style={{ borderColor: "var(--border)", color: "var(--purple)" }}
                 >
-                  Show 10 more buildings
+                  {t("showMoreBuildings")}
                 </button>
               )}
             </section>
 
             <section>
               <div className="px-4 pb-2 pt-5 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-                Bus stops
+                {t("busStops")}
               </div>
               {filteredPhysicalStops.slice(0, visibleStopCount).map((stop) => (
                 <button
@@ -539,7 +547,7 @@ export function SearchPage({
                     <Icon path={ICONS.locate} size={21} />
                   </span>
                   <span className="text-sm font-medium" style={{ color: "var(--text)" }}>
-                    {stop.name}
+                    {stopLabel(stop, locale)}
                   </span>
                 </button>
               ))}
@@ -550,7 +558,7 @@ export function SearchPage({
                   className="w-full px-4 py-3 text-sm font-semibold"
                   style={{ color: "var(--purple)" }}
                 >
-                  Show 10 more stops
+                  {t("showMoreStops")}
                 </button>
               )}
             </section>
@@ -563,23 +571,20 @@ export function SearchPage({
               className="text-xs font-semibold uppercase tracking-widest"
               style={{ color: "var(--muted)" }}
             >
-              {results.length} bus{results.length !== 1 ? "es" : ""} available
-              now
+              {t(results.length === 1 ? "busesAvailable" : "busesAvailablePlural", { count: results.length })}
               {searchedAt && (
                 <span className="normal-case tracking-normal font-medium">
                   {" "}
-                  · checked{" "}
-                  {searchedAt.toLocaleTimeString([], {
+                  · {t("checkedAt", { time: searchedAt.toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
-                  })}
+                  }) })}
                 </span>
               )}
             </div>
             {results.length > 0 && (
               <p className="text-xs" style={{ color: "var(--muted)" }}>
-                Arrival and ride-time figures are illustrative estimates, not
-                live or official schedule times.
+                {t("estimateNote")}
               </p>
             )}
             {results.length === 0 ? (
@@ -588,8 +593,8 @@ export function SearchPage({
                 style={{ color: "var(--muted)" }}
               >
                 {hasDirectRoute
-                  ? "A direct bus route exists, but none is operating at this time. Check the service hours or search again later."
-                  : "No direct one-way bus route connects these stops."}
+                  ? t("routeClosed")
+                  : t("noDirect")}
               </div>
             ) : (
               results.map((route) => {
@@ -625,14 +630,16 @@ export function SearchPage({
                           className="text-sm font-bold"
                           style={{ color: "var(--text)" }}
                         >
-                          {route.title ?? route.description}
+                          {routeHeading(route, locale)}
                         </div>
                         <div
                           className="text-xs"
                           style={{ color: "var(--muted)" }}
                         >
-                          {stopsCount} stop{stopsCount !== 1 ? "s" : ""} · ~
-                          {tripMinutes} min ride
+                          {t("rideSummary", {
+                            stops: stopsCount === 1 ? t("oneStop") : t("manyStops", { count: stopsCount }),
+                            minutes: tripMinutes,
+                          })}
                         </div>
                       </div>
                       <div className="text-right">
@@ -646,7 +653,7 @@ export function SearchPage({
                           className="text-[10px]"
                           style={{ color: "var(--muted)" }}
                         >
-                          {arrivalMinutes === null ? "no bus" : "min away"}
+                          {arrivalMinutes === null ? t("noBus") : t("minAway")}
                         </div>
                       </div>
                     </div>
@@ -671,7 +678,7 @@ export function SearchPage({
                                 className="text-xs font-medium truncate max-w-20"
                                 style={{ color: "var(--text)" }}
                               >
-                                {stop?.shortName}
+                                {stop ? stopLabel(stop, locale) : ""}
                               </span>
                             )}
                             {index < routeStops.length - 1 && (
@@ -697,7 +704,7 @@ export function SearchPage({
                         }}
                       >
                         <Icon path={ICONS.navigation} size={16} />
-                        <span className="flex-1">Track this route</span>
+                        <span className="flex-1">{t("trackThisRoute")}</span>
                         <Icon path={ICONS.chevronRight} size={16} />
                       </button>
                     </div>
@@ -710,7 +717,7 @@ export function SearchPage({
                           className="text-xs font-semibold uppercase tracking-widest mb-2"
                           style={{ color: "var(--muted)" }}
                         >
-                          Your journey
+                          {t("yourJourney")}
                         </div>
                         <div className="space-y-1">
                           {route.stopIds.map((stopId, index) => {
@@ -745,7 +752,7 @@ export function SearchPage({
                                 <span
                                   className={highlighted ? "font-semibold" : ""}
                                 >
-                                  {getCanonicalStopName(stop.name)}
+                                  {stopLabel(stop, locale)}
                                 </span>
                               </div>
                             );
@@ -767,7 +774,7 @@ export function SearchPage({
               className="mx-auto mb-3 opacity-30"
             />
             <p className="text-sm">
-              Select your start and destination stops to find available routes
+              {t("searchEmpty")}
             </p>
           </div>
         )}
@@ -796,14 +803,14 @@ export function SearchPage({
                 className="text-base font-bold"
                 style={{ color: "var(--text)" }}
               >
-                Select {selecting === "from" ? "Starting" : "Destination"} Stop
+                {selecting === "from" ? t("selectStartingStop") : t("selectDestinationStop")}
               </span>
             </div>
             <input
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search stops..."
+              placeholder={t("searchStops")}
               className="w-full px-4 py-2.5 rounded-xl text-sm outline-none border"
               style={{
                 borderColor: "var(--border)",
@@ -828,14 +835,14 @@ export function SearchPage({
                 />
                 <div className="flex-1">
                   <span className="text-sm" style={{ color: "var(--text)" }}>
-                    {stop.name}
+                    {stopLabel(stop, locale)}
                   </span>
                   {closestSearchStopId === stop.id && (
                     <div
                       className="text-[10px] font-semibold mt-0.5"
                       style={{ color: "#16A34A" }}
                     >
-                      Closest to your current location
+                      {t("closestYou")}
                     </div>
                   )}
                 </div>

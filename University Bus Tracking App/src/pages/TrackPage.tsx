@@ -3,20 +3,33 @@ import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { CAMPUS_BUILDINGS } from "../data/buildings";
 import { ROUTES, STOPS } from "../data/routes";
+import {
+  buildingLabel,
+  routeDescription,
+  routeHeading,
+  routeTitle,
+  serviceHours,
+  stopLabel,
+} from "../i18n/content";
+import { useI18n } from "../i18n/LanguageProvider";
+import { localizeSystemMessage } from "../i18n/messages";
 import { useBusLocationSharing } from "../hooks/useBusLocationSharing";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
 import { useTripProgress } from "../hooks/useTripProgress";
 import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
 import {
-  getCanonicalStopName,
   getDistance,
-  getRouteTitle,
   playArrivalTone,
 } from "../lib/transit";
 import { supabase } from "../lib/supabase";
 import type { CampusBuilding, Route, Stop } from "../types/transit";
 
 const TRIP_SURVEY_SEEN_KEY = "cuhk-bus-trip-survey-seen";
+
+type ArrivalNotice =
+  | { kind: "getOff"; stopId: string; buildingId: string }
+  | { kind: "stop"; stopId: string }
+  | { kind: "building"; buildingId: string };
 const GUIDANCE_HIDE_METERS = 13;
 const DEST_STOP_ALERT_METERS = 75;
 
@@ -47,6 +60,11 @@ export function TrackPage({
   presetDestBuildingId?: string;
   presetRevision?: number;
 }) {
+  const { locale, t } = useI18n();
+  const tRef = useRef(t);
+  const localeRef = useRef(locale);
+  tRef.current = t;
+  localeRef.current = locale;
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [destStop, setDestStop] = useState<Stop | null>(null);
   const [destinationBuilding, setDestinationBuilding] =
@@ -70,10 +88,7 @@ export function TrackPage({
   const [showDestPicker, setShowDestPicker] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [stopsAway, setStopsAway] = useState<number | null>(null);
-  const [stopAlert, setStopAlert] = useState<{
-    title: string;
-    body: string;
-  } | null>(null);
+  const [stopAlert, setStopAlert] = useState<ArrivalNotice | null>(null);
   const [tripStarted, setTripStarted] = useState(false);
   const [showStartPrompt, setShowStartPrompt] = useState(false);
   const [hasSeenTripSurvey, setHasSeenTripSurvey] = useState(
@@ -126,9 +141,7 @@ export function TrackPage({
     tripProgress.progressMeters,
   );
 
-  const endTrip = (
-    arrivalAlert: { title: string; body: string } | null = null,
-  ) => {
+  const endTrip = (arrivalAlert: ArrivalNotice | null = null) => {
     setTripStarted(false);
     setShareTripProgress(false);
     setAnonymousToken(null);
@@ -156,20 +169,20 @@ export function TrackPage({
     setNotificationPermissionMessage(null);
     if (!window.isSecureContext) {
       setNotificationPermissionMessage(
-        "Notifications require a secure HTTPS connection.",
+        t("httpsNeeded"),
       );
       return;
     }
     if (!("Notification" in window)) {
       setNotificationPermissionMessage(
-        "Browser notifications are unavailable on this device.",
+        t("notificationsUnavailable"),
       );
       return;
     }
     if (Notification.permission === "denied") {
       setArrivalNotificationsEnabled(false);
       setNotificationPermissionMessage(
-        "Notifications are blocked for this site. Enable them in browser site settings, then try again.",
+        t("notificationsBlocked"),
       );
       return;
     }
@@ -184,21 +197,21 @@ export function TrackPage({
         setArrivalNotificationsEnabled(false);
         setNotificationPermissionMessage(
           permission === "denied"
-            ? "Notifications are blocked for this site. Enable them in browser site settings, then try again."
-            : "No permission was selected. Tap again to request notifications.",
+            ? t("notificationsBlocked")
+            : t("notificationsNoChoice"),
         );
       }
     } catch {
       setArrivalNotificationsEnabled(false);
       setNotificationPermissionMessage(
-        "Unable to request notification permission.",
+        t("notificationsUnable"),
       );
     }
   };
 
   const submitTripSurvey = async () => {
     if (!supabase || surveyRating === null) {
-      setSurveyError("Feedback is temporarily unavailable. Please try again later.");
+      setSurveyError(t("surveyUnavailable"));
       setSurveyStatus("error");
       return;
     }
@@ -215,7 +228,7 @@ export function TrackPage({
       setSurveyStatus("success");
     } catch {
       setSurveyStatus("error");
-      setSurveyError("Could not send feedback. Please try again.");
+      setSurveyError(t("surveyFailed"));
     }
   };
   useEffect(() => {
@@ -444,9 +457,10 @@ export function TrackPage({
       if (buildingWalkStarted) return;
       setBuildingWalkStarted(true);
       setShareTripProgress(false);
-      const getOffAlert = {
-        title: `Get off at ${destStop.name}`,
-        body: `Follow the walking dots to ${destinationBuilding.name}. Your trip will end when you reach the building.`,
+      const getOffAlert: ArrivalNotice = {
+        kind: "getOff",
+        stopId: destStop.id,
+        buildingId: destinationBuilding.id,
       };
       setStopAlert(getOffAlert);
       if (arrivalNotificationsEnabled) playArrivalTone();
@@ -455,15 +469,16 @@ export function TrackPage({
         "Notification" in window &&
         Notification.permission === "granted"
       ) {
-        new Notification(getOffAlert.title, { body: getOffAlert.body });
+        const copy = tRef.current;
+        const activeLocale = localeRef.current;
+        new Notification(copy("getOffTitle", { stop: stopLabel(destStop, activeLocale) }), {
+          body: copy("getOffBody", { building: buildingLabel(destinationBuilding, activeLocale) }),
+        });
       }
       return;
     }
 
-    const arrivalAlert = {
-      title: "You've arrived",
-      body: `Your trip to ${destStop.name} has ended.`,
-    };
+    const arrivalAlert: ArrivalNotice = { kind: "stop", stopId: destStop.id };
     endTrip(arrivalAlert);
     if (arrivalNotificationsEnabled) playArrivalTone();
     if (
@@ -471,7 +486,10 @@ export function TrackPage({
       "Notification" in window &&
       Notification.permission === "granted"
     ) {
-      new Notification(arrivalAlert.title, { body: arrivalAlert.body });
+      const copy = tRef.current;
+      new Notification(copy("arrivedTitle"), {
+        body: copy("arrivedStopBody", { stop: stopLabel(destStop, localeRef.current) }),
+      });
     }
   }, [
     tripStarted,
@@ -505,9 +523,9 @@ export function TrackPage({
       return;
     }
 
-    const arrivalAlert = {
-      title: "You've arrived",
-      body: `You've reached ${destinationBuilding.name}. Your trip has ended.`,
+    const arrivalAlert: ArrivalNotice = {
+      kind: "building",
+      buildingId: destinationBuilding.id,
     };
     setBuildingWalkStarted(false);
     setBuildingGuidanceDismissed(true);
@@ -519,7 +537,11 @@ export function TrackPage({
       "Notification" in window &&
       Notification.permission === "granted"
     ) {
-      new Notification(arrivalAlert.title, { body: arrivalAlert.body });
+      new Notification(tRef.current("arrivedTitle"), {
+        body: tRef.current("arrivedBuildingBody", {
+          building: buildingLabel(destinationBuilding, localeRef.current),
+        }),
+      });
     }
   }, [
     tripStarted,
@@ -589,6 +611,27 @@ export function TrackPage({
 
   useEffect(() => setMapRotation(0), [selectedRoute?.id]);
 
+  const arrivalCopy = (notice: ArrivalNotice) => {
+    if (notice.kind === "getOff") {
+      const building = CAMPUS_BUILDINGS.find((item) => item.id === notice.buildingId);
+      return {
+        title: t("getOffTitle", { stop: stopLabel(STOPS[notice.stopId], locale) }),
+        body: t("getOffBody", { building: building ? buildingLabel(building, locale) : "" }),
+      };
+    }
+    if (notice.kind === "stop") {
+      return {
+        title: t("arrivedTitle"),
+        body: t("arrivedStopBody", { stop: stopLabel(STOPS[notice.stopId], locale) }),
+      };
+    }
+    const building = CAMPUS_BUILDINGS.find((item) => item.id === notice.buildingId);
+    return {
+      title: t("arrivedTitle"),
+      body: t("arrivedBuildingBody", { building: building ? buildingLabel(building, locale) : "" }),
+    };
+  };
+
   if (showRoutePicker) {
     return (
       <div className="flex flex-col h-full bg-white">
@@ -607,7 +650,7 @@ export function TrackPage({
             className="text-base font-bold"
             style={{ color: "var(--text)" }}
           >
-            Select Route to Track
+            {t("selectRouteTrack")}
           </span>
         </div>
         <div className="flex-1 scrollable">
@@ -645,10 +688,10 @@ export function TrackPage({
                   className="text-sm font-semibold"
                   style={{ color: "var(--text)" }}
                 >
-                  {route.title ?? route.description}
+                  {routeHeading(route, locale)}
                 </div>
                 <div className="text-xs" style={{ color: "var(--muted)" }}>
-                  {route.stopIds.length} stops · {route.serviceHours}
+                  {t("stopCountShort", { count: route.stopIds.length })} · {serviceHours(route.serviceHours, locale)}
                 </div>
               </div>
               {selectedRoute?.id === route.id && (
@@ -699,7 +742,7 @@ export function TrackPage({
             className="text-base font-bold"
             style={{ color: "var(--text)" }}
           >
-            Select Your Stop
+            {t("selectYourStop")}
           </span>
         </div>
         <div className="flex-1 scrollable">
@@ -714,7 +757,7 @@ export function TrackPage({
             className="w-full px-4 py-4 border-b text-left text-sm active:bg-gray-50"
             style={{ borderColor: "var(--border)", color: "var(--muted)" }}
           >
-            No destination (just track position)
+            {t("noDestination")}
           </button>
           {destinationOptions.map((stop, index) => (
             <button
@@ -754,7 +797,7 @@ export function TrackPage({
                 className="text-sm font-medium"
                 style={{ color: "var(--text)" }}
               >
-                {stop.name}
+                {stopLabel(stop, locale)}
               </span>
             </button>
           ))}
@@ -781,7 +824,7 @@ export function TrackPage({
             className="text-base font-bold"
             style={{ color: "var(--text)" }}
           >
-            Select Starting Stop
+            {t("selectStartingStop")}
           </span>
         </div>
         <div className="flex-1 scrollable">
@@ -823,14 +866,14 @@ export function TrackPage({
                   className="text-sm font-medium"
                   style={{ color: "var(--text)" }}
                 >
-                  {getCanonicalStopName(stop.name)}
+                  {stopLabel(stop, locale)}
                 </span>
                 {nearestStopRouteIndex === index && (
                   <div
                     className="text-[10px] font-semibold mt-0.5"
                     style={{ color: "#16A34A" }}
                   >
-                    Closest to current location
+                    {t("closestLocation")}
                   </div>
                 )}
               </div>
@@ -855,7 +898,7 @@ export function TrackPage({
             className="text-[1.05rem] font-extrabold leading-none"
             style={{ color: "var(--text)" }}
           >
-            Live Tracker
+            {t("liveTracker")}
           </h1>
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
@@ -869,11 +912,11 @@ export function TrackPage({
                 trackingPosition ? "bg-green-500" : "bg-purple-400"
               }`}
             />
-            {trackingPosition ? "Tracking" : "Not tracking"}
+            {trackingPosition ? t("tracking") : t("notTracking")}
           </div>
         </div>
         <p className="text-[10px]" style={{ color: "var(--muted)" }}>
-          Select a route and track your position. Building trips continue with walking guidance after the bus stop.
+          {t("trackerIntro")}
         </p>
       </div>
 
@@ -887,7 +930,7 @@ export function TrackPage({
                   onClick={() => setMapRotation((value) => value - 15)}
                   className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
                   style={{ color: "var(--purple)" }}
-                  aria-label="Rotate left"
+                  aria-label={t("rotateLeft")}
                 >
                   ↺
                 </button>
@@ -896,7 +939,7 @@ export function TrackPage({
                   onClick={() => setMapRotation((value) => value + 15)}
                   className="h-8 w-8 rounded-full bg-white/90 backdrop-blur-sm shadow-sm text-sm font-bold pointer-events-auto"
                   style={{ color: "var(--purple)" }}
-                  aria-label="Rotate right"
+                  aria-label={t("rotateRight")}
                 >
                   ↻
                 </button>
@@ -953,7 +996,7 @@ export function TrackPage({
             >
               <Icon path={ICONS.map} size={40} className="opacity-20 mb-2" />
               <span className="text-sm" style={{ color: "var(--muted)" }}>
-                Select a route to view map
+                {t("selectRouteMap")}
               </span>
             </div>
           )}
@@ -965,7 +1008,7 @@ export function TrackPage({
               className="text-[10px] font-semibold uppercase tracking-widest mb-2"
               style={{ color: "var(--muted)" }}
             >
-              Current Status
+              {t("currentStatus")}
             </div>
             <div className="flex gap-2 mb-2">
               <div
@@ -976,14 +1019,14 @@ export function TrackPage({
                   className="text-[10px] mb-1"
                   style={{ color: "var(--muted)" }}
                 >
-                  Current Stop
+                  {t("currentStop")}
                 </div>
                 <div
                   className="text-xs font-bold"
                   style={{ color: "var(--purple)" }}
                 >
                   {activeStop
-                    ? getCanonicalStopName(activeStop.shortName)
+                    ? stopLabel(activeStop, locale)
                     : "—"}
                 </div>
               </div>
@@ -996,7 +1039,7 @@ export function TrackPage({
                     className="text-[10px] mb-1"
                     style={{ color: "#92400E" }}
                   >
-                    Stops to Dest.
+                    {t("stopsToDest")}
                   </div>
                   <div
                     className="text-xs font-bold"
@@ -1013,14 +1056,14 @@ export function TrackPage({
                 style={{ background: "#EFF6FF" }}
               >
                 <div className="text-[10px] mb-1" style={{ color: "#1D4ED8" }}>
-                  {buildingWalkStarted ? "Walking Destination" : "Next Stop"}
+                  {buildingWalkStarted ? t("walkingDestination") : t("nextStop")}
                 </div>
                 <div className="text-xs font-bold" style={{ color: "#1D4ED8" }}>
                   {buildingWalkStarted && destinationBuilding
-                    ? destinationBuilding.name
+                    ? buildingLabel(destinationBuilding, locale)
                     : nextStop
-                      ? getCanonicalStopName(nextStop.shortName)
-                      : "End of route"}
+                      ? stopLabel(nextStop, locale)
+                      : t("endOfRoute")}
                 </div>
               </div>
             )}
@@ -1052,13 +1095,13 @@ export function TrackPage({
                 style={{ color: "var(--text)" }}
               >
                 {selectedRoute
-                  ? `Route ${getRouteTitle(selectedRoute)} – ${selectedRoute.description}`
-                  : "Select a route"}
+                  ? t("routeWord", { name: `${routeTitle(selectedRoute, locale)} – ${routeDescription(selectedRoute, locale)}` })
+                  : t("selectRoute")}
               </div>
               <div className="text-xs" style={{ color: "var(--muted)" }}>
                 {selectedRoute
                   ? `${routeStops.length} stops`
-                  : "Tap to choose which bus you're on"}
+                  : t("tapChooseBus")}
               </div>
             </div>
             <Icon path={ICONS.chevronRight} size={18} className="opacity-30" />
@@ -1089,13 +1132,13 @@ export function TrackPage({
                     style={{ color: "var(--text)" }}
                   >
                     {startStop
-                      ? getCanonicalStopName(startStop.name)
-                      : "Finding your starting stop..."}
+                      ? stopLabel(startStop, locale)
+                      : t("findingStart")}
                   </div>
                   <div className="text-xs" style={{ color: "var(--muted)" }}>
                     {startStopManuallySet
-                      ? "Tap to change starting stop"
-                      : "Based on your current location"}
+                      ? t("tapChangeStart")
+                      : t("basedOnLocation")}
                   </div>
                 </div>
                 <Icon
@@ -1127,15 +1170,18 @@ export function TrackPage({
                     className="text-sm font-semibold"
                     style={{ color: "var(--text)" }}
                   >
-                    {destinationBuilding?.name ??
-                      (destStop ? destStop.name : "Set destination stop")}
+                    {destinationBuilding
+                      ? buildingLabel(destinationBuilding, locale)
+                      : destStop
+                        ? stopLabel(destStop, locale)
+                        : t("setDestination")}
                   </div>
                   <div className="text-xs" style={{ color: "var(--muted)" }}>
                     {destinationBuilding && destStop
-                      ? `Bus to ${getCanonicalStopName(destStop.name)}, then walk to building`
+                      ? t("busThenWalk", { stop: stopLabel(destStop, locale) })
                       : destStop
-                        ? "Trip ends automatically at this stop"
-                        : "Optional: choose where to end the trip"}
+                        ? t("tripEndsHere")
+                        : t("optionalEnd")}
                   </div>
                 </div>
                 <Icon
@@ -1172,10 +1218,10 @@ export function TrackPage({
                   >
                     <Icon path={ICONS.alert} size={16} />
                     {arrivalNotificationsEnabled
-                      ? "Arrival notification enabled"
+                      ? t("arrivalOn")
                       : destinationBuilding
-                        ? "Notify me when I reach the building"
-                        : "Notify me when I arrive"}
+                        ? t("notifyBuilding")
+                        : t("notifyArrive")}
                   </button>
                   {notificationPermissionMessage && (
                     <div
@@ -1202,7 +1248,7 @@ export function TrackPage({
               style={{ background: tripStarted ? "#DC2626" : "var(--navy)" }}
             >
               <Icon path={tripStarted ? ICONS.stop : ICONS.play} size={16} />
-              {tripStarted ? "Change Trip / End Trip" : "Start Trip"}
+              {tripStarted ? t("changeOrEnd") : t("startTrip")}
             </button>
           )}
         </div>
@@ -1220,19 +1266,19 @@ export function TrackPage({
                   className="block text-sm font-semibold"
                   style={{ color: "var(--text)" }}
                 >
-                  Anonymous location sharing
+                  {t("shareTitle")}
                 </span>
                 <span
                   className="mt-0.5 block text-xs"
                   style={{ color: "var(--muted)" }}
                 >
                   {!shareTripProgress
-                    ? "Location sharing is paused for this trip."
+                    ? t("sharePaused")
                     : busLocationSharing.status === "unconfigured"
-                      ? "Supabase is not configured, so your location is not being shared."
+                      ? t("shareUnconfigured")
                       : busLocationSharing.status === "error"
-                        ? "Location sharing failed. Your latest position was not shared."
-                        : "While tracking, your location is shared anonymously to improve arrival times for other students."}
+                        ? t("shareFailed")
+                        : t("shareBody")}
                 </span>
               </span>
               <span
@@ -1263,12 +1309,12 @@ export function TrackPage({
                 role="status"
               >
                 {busLocationSharing.status === "sharing"
-                  ? "Trip progress is being shared."
+                  ? t("shareStatus")
                   : busLocationSharing.status === "unconfigured"
-                    ? busLocationSharing.error
+                    ? localizeSystemMessage(locale, busLocationSharing.error ?? "")
                     : busLocationSharing.status === "error"
-                      ? busLocationSharing.error
-                      : "Waiting for an accurate GPS route match…"}
+                      ? localizeSystemMessage(locale, busLocationSharing.error ?? "")
+                      : t("waitingMatch")}
               </div>
             )}
           </div>
@@ -1278,7 +1324,7 @@ export function TrackPage({
             className="mx-3 mt-2 px-4 py-2 rounded-xl text-xs text-center"
             style={{ background: "#FEF2F2", color: "#DC2626" }}
           >
-            {gpsError}
+            {localizeSystemMessage(locale, gpsError)}
           </div>
         )}
         <div className="h-8" />
@@ -1306,16 +1352,20 @@ export function TrackPage({
               id="start-trip-prompt-title"
               style={{ color: "var(--text)" }}
             >
-              Ready to start your trip?
+              {t("readyTitle")}
             </div>
             <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
               {destinationBuilding && destStop
-                ? `Your destination is ${destinationBuilding.name}. Take ${selectedRoute ? getRouteTitle(selectedRoute) : "the bus"} to ${getCanonicalStopName(destStop.name)}, then follow the walking dots.`
+                ? t("promptBuilding", {
+                    building: buildingLabel(destinationBuilding, locale),
+                    route: selectedRoute ? routeTitle(selectedRoute, locale) : t("theBus"),
+                    stop: stopLabel(destStop, locale),
+                  })
                 : destStop
-                  ? `Your destination is ${destStop.name}. Start now for live trip tracking and an arrival alert.`
+                  ? t("promptStop", { stop: stopLabel(destStop, locale) })
                 : selectedRoute
-                  ? "You can start without choosing a target stop. Adding one later enhances route guidance and arrival alerts."
-                  : "Choose a bus route first. A target stop is optional, but setting one enhances route guidance and arrival alerts."}
+                  ? t("promptNoStop")
+                  : t("promptNoRoute")}
             </p>
             <button
               type="button"
@@ -1323,7 +1373,7 @@ export function TrackPage({
               className="mt-5 w-full rounded-xl py-3 text-sm font-semibold text-white"
               style={{ background: "var(--navy)" }}
             >
-              {selectedRoute ? "Start Trip" : "Choose a route"}
+              {selectedRoute ? t("startTrip") : t("chooseRoute")}
             </button>
             <button
               type="button"
@@ -1331,7 +1381,7 @@ export function TrackPage({
               className="mt-2 w-full rounded-xl border py-2.5 text-sm font-semibold"
               style={{ borderColor: "var(--border)", color: "var(--muted)" }}
             >
-              Not now
+              {t("notNow")}
             </button>
           </div>
         </div>
@@ -1352,13 +1402,13 @@ export function TrackPage({
               className="text-center text-lg font-bold"
               style={{ color: "var(--text)" }}
             >
-              {stopAlert.title}
+              {arrivalCopy(stopAlert).title}
             </div>
             <div
               className="mt-2 text-center text-sm"
               style={{ color: "var(--muted)" }}
             >
-              {stopAlert.body}
+              {arrivalCopy(stopAlert).body}
             </div>
             <button
               onClick={() => {
@@ -1373,7 +1423,7 @@ export function TrackPage({
               className="mt-5 w-full rounded-2xl py-3 text-sm font-semibold text-white"
               style={{ background: "var(--purple)" }}
             >
-              Got it
+              {t("gotIt")}
             </button>
           </div>
         </div>
@@ -1396,10 +1446,10 @@ export function TrackPage({
                   className="text-lg font-bold"
                   style={{ color: "var(--text)" }}
                 >
-                  Thanks for your feedback
+                  {t("thanksFeedback")}
                 </h2>
                 <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
-                  Your response helps us improve the bus app.
+                  {t("thanksBody")}
                 </p>
                 <button
                   type="button"
@@ -1407,7 +1457,7 @@ export function TrackPage({
                   className="mt-5 w-full rounded-xl py-3 text-sm font-semibold text-white"
                   style={{ background: "var(--navy)" }}
                 >
-                  Done
+                  {t("done")}
                 </button>
               </>
             ) : (
@@ -1417,22 +1467,22 @@ export function TrackPage({
                   className="text-lg font-bold"
                   style={{ color: "var(--text)" }}
                 >
-                  How was your trip?
+                  {t("howWasTrip")}
                 </h2>
                 <p className="mt-1 text-sm" style={{ color: "var(--muted)" }}>
-                  Rate your experience from 1 to 5 stars.
+                  {t("rateStars")}
                 </p>
                 <div
                   className="mt-4 flex justify-center gap-2"
                   role="group"
-                  aria-label="Trip rating"
+                  aria-label={t("tripRating")}
                 >
                   {[1, 2, 3, 4, 5].map((rating) => (
                     <button
                       key={rating}
                       type="button"
                       onClick={() => setSurveyRating(rating)}
-                      aria-label={`${rating} ${rating === 1 ? "star" : "stars"}`}
+                      aria-label={t(rating === 1 ? "star" : "stars", { count: rating })}
                       aria-pressed={surveyRating === rating}
                       className="h-11 w-11 text-3xl leading-none"
                       style={{
@@ -1454,8 +1504,8 @@ export function TrackPage({
                   aria-expanded={surveyExpanded}
                 >
                   {surveyExpanded
-                    ? "Hide extra feedback"
-                    : "Add a short comment (optional)"}
+                    ? t("hideComment")
+                    : t("addComment")}
                 </button>
                 {surveyExpanded && (
                   <div className="mt-3 space-y-3">
@@ -1463,7 +1513,7 @@ export function TrackPage({
                       className="block text-sm font-medium"
                       style={{ color: "var(--text)" }}
                     >
-                      How was the experience?
+                      {t("experienceLabel")}
                       <textarea
                         value={surveyExperience}
                         onChange={(event) =>
@@ -1479,7 +1529,7 @@ export function TrackPage({
                       className="block text-sm font-medium"
                       style={{ color: "var(--text)" }}
                     >
-                      Any suggestions for the app?
+                      {t("suggestionLabel")}
                       <textarea
                         value={surveySuggestion}
                         onChange={(event) =>
@@ -1509,7 +1559,7 @@ export function TrackPage({
                   className="mt-5 w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-50"
                   style={{ background: "var(--navy)" }}
                 >
-                  {surveyStatus === "submitting" ? "Sending…" : "Send feedback"}
+                  {surveyStatus === "submitting" ? t("sending") : t("sendFeedback")}
                 </button>
                 <button
                   type="button"
@@ -1517,7 +1567,7 @@ export function TrackPage({
                   className="mt-2 w-full rounded-xl border py-2.5 text-sm font-semibold"
                   style={{ borderColor: "var(--border)", color: "var(--muted)" }}
                 >
-                  Skip
+                  {t("skip")}
                 </button>
               </>
             )}

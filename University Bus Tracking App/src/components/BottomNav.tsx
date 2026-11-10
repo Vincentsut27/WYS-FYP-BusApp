@@ -1,14 +1,17 @@
+import { useI18n } from "../i18n/LanguageProvider";
+import type { MessageKey } from "../i18n/messages";
 import { Icon, ICONS } from "./Icon";
 
 export type TabId = "routes" | "arrival" | "search" | "track" | "about";
 
 export function BottomNav({ active, onChange }: { active: TabId; onChange: (tab: TabId) => void }) {
-  const tabs: { id: TabId; label: string; iconPath: string }[] = [
-    { id: "routes", label: "Routes", iconPath: ICONS.bus },
-    { id: "arrival", label: "Arrival", iconPath: ICONS.clock },
-    { id: "search", label: "Search", iconPath: ICONS.search },
-    { id: "track", label: "Track", iconPath: ICONS.navigation },
-    { id: "about", label: "About", iconPath: ICONS.map },
+  const { t } = useI18n();
+  const tabs: { id: TabId; label: MessageKey; iconPath: string }[] = [
+    { id: "routes", label: "navRoutes", iconPath: ICONS.bus },
+    { id: "arrival", label: "navArrival", iconPath: ICONS.clock },
+    { id: "search", label: "navSearch", iconPath: ICONS.search },
+    { id: "track", label: "navTrack", iconPath: ICONS.navigation },
+    { id: "about", label: "navAbout", iconPath: ICONS.map },
   ];
 
   return (
@@ -24,7 +27,7 @@ export function BottomNav({ active, onChange }: { active: TabId; onChange: (tab:
               onClick={() => onChange(tab.id)}
             >
               <Icon path={tab.iconPath} size={20} />
-              <span className="text-[10px] font-medium">{tab.label}</span>
+              <span className="text-[10px] font-medium">{t(tab.label)}</span>
             </button>
           );
         })}

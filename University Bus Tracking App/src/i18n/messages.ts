@@ -1,0 +1,295 @@
+export type Locale = "en" | "zh-Hant";
+
+export const LOCALE_STORAGE_KEY = "cuhk-bus-locale";
+
+type Copy = Record<Locale, string>;
+
+export const MESSAGES = {
+  navRoutes: { en: "Routes", "zh-Hant": "路線" },
+  navArrival: { en: "Arrival", "zh-Hant": "到站" },
+  navSearch: { en: "Search", "zh-Hant": "搜尋" },
+  navTrack: { en: "Track", "zh-Hant": "追蹤" },
+  navAbout: { en: "About", "zh-Hant": "關於" },
+  appTitle: { en: "CUHK Bus Routes", "zh-Hant": "中大校巴路線" },
+
+  gpsTitle: { en: "Allow location and motion access?", "zh-Hant": "允許位置及動態感應？" },
+  gpsBody: {
+    en: "CUHK Bus Routes uses your location and motion/orientation data to show nearby stops, point the user arrow in the right direction, and track your journey accurately. Your data stays in this browser and is not saved by this app.",
+    "zh-Hant": "中大校巴路線會使用你的位置及動態／方向資料，顯示附近車站、讓箭頭指向正確方向，並準確追蹤行程。資料只留在此瀏覽器，應用程式不會儲存。",
+  },
+  notNow: { en: "Not now", "zh-Hant": "暫時不要" },
+  allowGps: { en: "Allow GPS", "zh-Hant": "允許定位" },
+
+  aboutTitle: { en: "About CUHK Bus Routes", "zh-Hant": "關於中大校巴路線" },
+  aboutAppTitle: { en: "About the app", "zh-Hant": "關於本應用程式" },
+  aboutAppBody: {
+    en: "CUHK Bus Routes helps the university community explore campus bus routes, check stops and estimated arrival times, and plan journeys across campus.",
+    "zh-Hant": "中大校巴路線協助大學社群查閱校園巴士路線、車站及預計到站時間，並規劃校園行程。",
+  },
+  languageTitle: { en: "Language", "zh-Hant": "語言" },
+  languageBody: { en: "Choose the language used throughout the app.", "zh-Hant": "選擇整個應用程式使用的語言。" },
+  languageEnglish: { en: "English", "zh-Hant": "English" },
+  languageChinese: { en: "繁體中文", "zh-Hant": "繁體中文" },
+  languageDialogTitle: { en: "Choose a language", "zh-Hant": "選擇語言" },
+  close: { en: "Close", "zh-Hant": "關閉" },
+  contactTitle: { en: "Questions or suggestions?", "zh-Hant": "有問題或建議？" },
+  contactBody: {
+    en: "Contact us by email. We welcome questions and ideas for improving the app.",
+    "zh-Hant": "歡迎以電郵聯絡我們，提出問題或改善應用程式的想法。",
+  },
+  feedbackTitle: { en: "Feedback", "zh-Hant": "意見回饋" },
+  feedbackBody: {
+    en: "Tell us what worked and what we should improve. The form opens in a new tab.",
+    "zh-Hant": "告訴我們哪些地方好用、哪些可以改善。表格會在新分頁開啟。",
+  },
+  feedbackAction: { en: "Open feedback form", "zh-Hant": "開啟意見表格" },
+  aboutDisclaimer: {
+    en: "Arrival times may be illustrative estimates. Bus service is subject to the published timetable.",
+    "zh-Hant": "到站時間可能只屬說明性估算。巴士服務以公布的時間表為準。",
+  },
+
+  routeList: { en: "Route List", "zh-Hant": "路線一覽" },
+  routeWord: { en: "Route {name}", "zh-Hant": "路線 {name}" },
+  info: { en: "Info", "zh-Hant": "資料" },
+  tapStop: { en: "Tap stop to highlight", "zh-Hant": "點選車站以突出顯示" },
+  stopCount: { en: "{count} Stops", "zh-Hant": "{count} 個車站" },
+  stopCountShort: { en: "{count} stops", "zh-Hant": "{count} 個車站" },
+  arrivalApprox: {
+    en: "Approximate arrival times for the next two departures.",
+    "zh-Hant": "以下為下兩班車的大約到站時間。",
+  },
+  beyondHours: { en: "Beyond service hours", "zh-Hant": "已過服務時間" },
+  minutes: { en: "{count} min", "zh-Hant": "{count} 分鐘" },
+  operatingDays: { en: "Operating Days", "zh-Hant": "服務日子" },
+  serviceHours: { en: "Service Hours", "zh-Hant": "服務時間" },
+  frequency: { en: "Frequency", "zh-Hant": "班次" },
+  note: { en: "Note", "zh-Hant": "備註" },
+
+  arrivalTitle: { en: "Arrival Times", "zh-Hant": "到站時間" },
+  nearMe: { en: "Near Me", "zh-Hant": "附近" },
+  allStops: { en: "All Stops", "zh-Hant": "所有車站" },
+  nearbyStops: { en: "Nearby Stops", "zh-Hant": "附近車站" },
+  allowLocation: { en: "Allow location access to find stops near you.", "zh-Hant": "允許定位，以找出你附近的車站。" },
+  enable: { en: "Enable", "zh-Hant": "開啟" },
+  scheduleCountdowns: { en: "Schedule-based arrival countdowns", "zh-Hant": "按時間表計算的到站倒數" },
+  noRoutesStop: { en: "No routes serve this stop.", "zh-Hant": "沒有路線停靠此站。" },
+  noBusesRemaining: {
+    en: "No buses are scheduled for this stop during the remaining service hours.",
+    "zh-Hant": "餘下服務時間內，沒有班次停靠此站。",
+  },
+  routesServing: { en: "Routes serving this stop", "zh-Hant": "停靠此站的路線" },
+  liveEtaHint: {
+    en: "Live estimates use opt-in rider GPS. Otherwise, countdowns follow the service schedule and segment times.",
+    "zh-Hant": "即時估計來自自願分享的乘客定位。否則，倒數會按服務時間表及路段時間計算。",
+  },
+  scheduleVaries: { en: "Schedule countdown; actual bus timing may vary.", "zh-Hant": "此為時間表倒數，實際到站時間可能有所不同。" },
+  scheduleVariesShort: { en: "Schedule countdown; actual bus timing may vary", "zh-Hant": "此為時間表倒數，實際到站時間可能有所不同" },
+  nextStopArrow: { en: "Next → {stop}", "zh-Hant": "下一站 → {stop}" },
+  liveEta: { en: "Live ETA", "zh-Hant": "即時預計" },
+  scheduledArrival: { en: "Scheduled arrival", "zh-Hant": "預定到站" },
+  liveMinutes: { en: "Live · {count} min", "zh-Hant": "即時 · {count} 分鐘" },
+  liveReports: { en: "{count} live report", "zh-Hant": "{count} 個即時回報" },
+  liveReportsPlural: { en: "{count} live reports", "zh-Hant": "{count} 個即時回報" },
+  liveUnavailable: { en: "Live ETA unavailable · showing schedule", "zh-Hant": "未能提供即時預計 · 顯示時間表" },
+  liveUnconfigured: { en: "Live ETA not configured · showing schedule", "zh-Hant": "尚未設定即時預計 · 顯示時間表" },
+
+  placesTitle: { en: "Where are you going?", "zh-Hant": "你要去哪裡？" },
+  stopSearchTitle: { en: "Stop-To-Stop Search", "zh-Hant": "車站搜尋" },
+  searchMode: { en: "Search mode", "zh-Hant": "搜尋模式" },
+  places: { en: "Places", "zh-Hant": "地點" },
+  busRoutes: { en: "Bus routes", "zh-Hant": "巴士路線" },
+  selectStart: { en: "Select starting stop", "zh-Hant": "選擇上車站" },
+  selectDest: { en: "Select destination stop", "zh-Hant": "選擇目的站" },
+  searchRoutes: { en: "Search Routes", "zh-Hant": "搜尋路線" },
+  searchPlaces: { en: "Search buildings or stops...", "zh-Hant": "搜尋大樓或車站…" },
+  selectedDestination: { en: "Selected destination", "zh-Hant": "已選目的地" },
+  clearBuilding: { en: "Clear selected building", "zh-Hant": "清除已選大樓" },
+  toStop: { en: "To: {stop}", "zh-Hant": "前往：{stop}" },
+  enableLocationRoutes: { en: "Enable location to find bus routes", "zh-Hant": "開啟定位以尋找巴士路線" },
+  noBuildingRoutes: {
+    en: "No bus service connects your three nearest stops to this building right now.",
+    "zh-Hant": "現時沒有巴士由你最近的三個車站前往這座大樓。",
+  },
+  directRoutes: { en: "Direct bus routes", "zh-Hant": "直達巴士路線" },
+  rideWalk: {
+    en: "{ride} min bus · {toStop} m to stop · {toBuilding} m to building",
+    "zh-Hant": "乘車 {ride} 分鐘 · 步行 {toStop} 米到車站 · {toBuilding} 米到大樓",
+  },
+  now: { en: "Now", "zh-Hant": "即將" },
+  busArrival: { en: "bus arrival", "zh-Hant": "巴士到站" },
+  campusBuildings: { en: "Campus buildings", "zh-Hant": "校園大樓" },
+  teachingNear: { en: "Teaching · near {stop}", "zh-Hant": "教學大樓 · 近{stop}" },
+  showMoreBuildings: { en: "Show 10 more buildings", "zh-Hant": "顯示多 10 座大樓" },
+  busStops: { en: "Bus stops", "zh-Hant": "巴士站" },
+  showMoreStops: { en: "Show 10 more stops", "zh-Hant": "顯示多 10 個車站" },
+  busesAvailable: { en: "{count} bus available now", "zh-Hant": "現有 {count} 條路線" },
+  busesAvailablePlural: { en: "{count} buses available now", "zh-Hant": "現有 {count} 條路線" },
+  checkedAt: { en: "checked {time}", "zh-Hant": "查閱於 {time}" },
+  estimateNote: {
+    en: "Arrival and ride-time figures are illustrative estimates, not live or official schedule times.",
+    "zh-Hant": "到站及車程數字屬說明性估算，並非即時或官方時間表。",
+  },
+  routeClosed: {
+    en: "A direct bus route exists, but none is operating at this time. Check the service hours or search again later.",
+    "zh-Hant": "有直達路線，但現時沒有班次。請查看服務時間，或稍後再搜尋。",
+  },
+  noDirect: { en: "No direct one-way bus route connects these stops.", "zh-Hant": "這些車站之間沒有直達的單向巴士路線。" },
+  rideSummary: { en: "{stops} · ~{minutes} min ride", "zh-Hant": "{stops} · 約 {minutes} 分鐘車程" },
+  oneStop: { en: "1 stop", "zh-Hant": "1 站" },
+  manyStops: { en: "{count} stops", "zh-Hant": "{count} 站" },
+  minAway: { en: "min away", "zh-Hant": "分鐘後" },
+  noBus: { en: "no bus", "zh-Hant": "沒有班次" },
+  trackThisRoute: { en: "Track this route", "zh-Hant": "追蹤此路線" },
+  yourJourney: { en: "Your journey", "zh-Hant": "你的行程" },
+  searchEmpty: { en: "Select your start and destination stops to find available routes", "zh-Hant": "選擇上車站及目的站，以尋找可用路線" },
+  selectStartingStop: { en: "Select Starting Stop", "zh-Hant": "選擇上車站" },
+  selectDestinationStop: { en: "Select Destination Stop", "zh-Hant": "選擇目的站" },
+  searchStops: { en: "Search stops...", "zh-Hant": "搜尋車站…" },
+  closestYou: { en: "Closest to your current location", "zh-Hant": "最接近你目前的位置" },
+
+  liveTracker: { en: "Live Tracker", "zh-Hant": "即時追蹤" },
+  tracking: { en: "Tracking", "zh-Hant": "追蹤中" },
+  notTracking: { en: "Not tracking", "zh-Hant": "未在追蹤" },
+  trackerIntro: {
+    en: "Select a route and track your position. Building trips continue with walking guidance after the bus stop.",
+    "zh-Hant": "選擇路線並追蹤你的位置。前往大樓的行程會在落車後繼續顯示步行指引。",
+  },
+  rotateLeft: { en: "Rotate left", "zh-Hant": "向左旋轉" },
+  rotateRight: { en: "Rotate right", "zh-Hant": "向右旋轉" },
+  selectRouteMap: { en: "Select a route to view map", "zh-Hant": "選擇路線以查看地圖" },
+  currentStatus: { en: "Current Status", "zh-Hant": "目前狀態" },
+  currentStop: { en: "Current Stop", "zh-Hant": "目前車站" },
+  stopsToDest: { en: "Stops to Dest.", "zh-Hant": "距離目的站" },
+  walkingDestination: { en: "Walking Destination", "zh-Hant": "步行目的地" },
+  nextStop: { en: "Next Stop", "zh-Hant": "下一站" },
+  endOfRoute: { en: "End of route", "zh-Hant": "路線終點" },
+  selectRoute: { en: "Select a route", "zh-Hant": "選擇路線" },
+  tapChooseBus: { en: "Tap to choose which bus you're on", "zh-Hant": "點選你正在乘坐的巴士" },
+  findingStart: { en: "Finding your starting stop...", "zh-Hant": "正在找出你的上車站…" },
+  tapChangeStart: { en: "Tap to change starting stop", "zh-Hant": "點選以更改上車站" },
+  basedOnLocation: { en: "Based on your current location", "zh-Hant": "根據你目前的位置" },
+  setDestination: { en: "Set destination stop", "zh-Hant": "設定目的站" },
+  busThenWalk: { en: "Bus to {stop}, then walk to building", "zh-Hant": "乘車到{stop}，再步行到大樓" },
+  tripEndsHere: { en: "Trip ends automatically at this stop", "zh-Hant": "行程會在此站自動結束" },
+  optionalEnd: { en: "Optional: choose where to end the trip", "zh-Hant": "可選：選擇行程結束的車站" },
+  arrivalOn: { en: "Arrival notification enabled", "zh-Hant": "已開啟到站通知" },
+  notifyBuilding: { en: "Notify me when I reach the building", "zh-Hant": "到達大樓時通知我" },
+  notifyArrive: { en: "Notify me when I arrive", "zh-Hant": "到站時通知我" },
+  changeOrEnd: { en: "Change Trip / End Trip", "zh-Hant": "更改行程／結束行程" },
+  startTrip: { en: "Start Trip", "zh-Hant": "開始行程" },
+  chooseRoute: { en: "Choose a route", "zh-Hant": "選擇路線" },
+  shareTitle: { en: "Anonymous location sharing", "zh-Hant": "匿名分享位置" },
+  sharePaused: { en: "Location sharing is paused for this trip.", "zh-Hant": "此行程已暫停分享位置。" },
+  shareUnconfigured: { en: "Supabase is not configured, so your location is not being shared.", "zh-Hant": "尚未設定 Supabase，因此不會分享你的位置。" },
+  shareFailed: { en: "Location sharing failed. Your latest position was not shared.", "zh-Hant": "分享位置失敗，最近的位置沒有送出。" },
+  shareBody: {
+    en: "While tracking, your location is shared anonymously to improve arrival times for other students.",
+    "zh-Hant": "追蹤期間，你的位置會匿名分享，以改善其他同學的到站時間。",
+  },
+  shareStatus: { en: "Trip progress is being shared.", "zh-Hant": "正在分享行程進度。" },
+  waitingMatch: { en: "Waiting for an accurate GPS route match…", "zh-Hant": "正在等待準確的定位以配合路線…" },
+  readyTitle: { en: "Ready to start your trip?", "zh-Hant": "準備開始行程？" },
+  promptBuilding: {
+    en: "Your destination is {building}. Take {route} to {stop}, then follow the walking dots.",
+    "zh-Hant": "目的地是{building}。乘{route}前往{stop}，然後跟着步行提示前進。",
+  },
+  theBus: { en: "the bus", "zh-Hant": "校巴" },
+  promptStop: {
+    en: "Your destination is {stop}. Start now for live trip tracking and an arrival alert.",
+    "zh-Hant": "目的地是{stop}。現在開始即可即時追蹤行程，並在到站時收到提示。",
+  },
+  promptNoStop: {
+    en: "You can start without choosing a target stop. Adding one later enhances route guidance and arrival alerts.",
+    "zh-Hant": "你可以不選目的站就開始。之後加上目的站，路線指引及到站提示會更清楚。",
+  },
+  promptNoRoute: {
+    en: "Choose a bus route first. A target stop is optional, but setting one enhances route guidance and arrival alerts.",
+    "zh-Hant": "請先選擇巴士路線。目的站可以稍後再設，設定後路線指引及到站提示會更清楚。",
+  },
+  gotIt: { en: "Got it", "zh-Hant": "知道了" },
+  thanksFeedback: { en: "Thanks for your feedback", "zh-Hant": "多謝你的意見" },
+  thanksBody: { en: "Your response helps us improve the bus app.", "zh-Hant": "你的回應有助我們改善校巴應用程式。" },
+  done: { en: "Done", "zh-Hant": "完成" },
+  howWasTrip: { en: "How was your trip?", "zh-Hant": "這次行程如何？" },
+  rateStars: { en: "Rate your experience from 1 to 5 stars.", "zh-Hant": "請以 1 至 5 星評分。" },
+  tripRating: { en: "Trip rating", "zh-Hant": "行程評分" },
+  star: { en: "{count} star", "zh-Hant": "{count} 星" },
+  stars: { en: "{count} stars", "zh-Hant": "{count} 星" },
+  hideComment: { en: "Hide extra feedback", "zh-Hant": "隱藏補充意見" },
+  addComment: { en: "Add a short comment (optional)", "zh-Hant": "加一句短評（可選）" },
+  experienceLabel: { en: "How was the experience?", "zh-Hant": "乘車體驗如何？" },
+  suggestionLabel: { en: "Any suggestions for the app?", "zh-Hant": "對應用程式有什麼建議？" },
+  sending: { en: "Sending…", "zh-Hant": "傳送中…" },
+  sendFeedback: { en: "Send feedback", "zh-Hant": "送出意見" },
+  skip: { en: "Skip", "zh-Hant": "略過" },
+  surveyUnavailable: { en: "Feedback is temporarily unavailable. Please try again later.", "zh-Hant": "意見功能暫時未能使用，請稍後再試。" },
+  surveyFailed: { en: "Could not send feedback. Please try again.", "zh-Hant": "未能送出意見，請再試一次。" },
+  selectRouteTrack: { en: "Select Route to Track", "zh-Hant": "選擇要追蹤的路線" },
+  selectYourStop: { en: "Select Your Stop", "zh-Hant": "選擇你的車站" },
+  noDestination: { en: "No destination (just track position)", "zh-Hant": "不設目的站（只追蹤位置）" },
+  closestLocation: { en: "Closest to current location", "zh-Hant": "最接近目前位置" },
+  getOffTitle: { en: "Get off at {stop}", "zh-Hant": "在{stop}下車" },
+  getOffBody: {
+    en: "Follow the walking dots to {building}. Your trip will end when you reach the building.",
+    "zh-Hant": "跟着步行提示前往{building}。到達大樓後，行程便會結束。",
+  },
+  arrivedTitle: { en: "You've arrived", "zh-Hant": "你已到達" },
+  arrivedStopBody: { en: "Your trip to {stop} has ended.", "zh-Hant": "前往{stop}的行程已結束。" },
+  arrivedBuildingBody: { en: "You've reached {building}. Your trip has ended.", "zh-Hant": "你已到達{building}，行程已結束。" },
+  httpsNeeded: { en: "Notifications require a secure HTTPS connection.", "zh-Hant": "通知需要安全的 HTTPS 連線。" },
+  notificationsUnavailable: { en: "Browser notifications are unavailable on this device.", "zh-Hant": "此裝置無法使用瀏覽器通知。" },
+  notificationsBlocked: {
+    en: "Notifications are blocked for this site. Enable them in browser site settings, then try again.",
+    "zh-Hant": "此網站的通知已被封鎖。請在瀏覽器的網站設定中開啟，然後再試。",
+  },
+  notificationsNoChoice: { en: "No permission was selected. Tap again to request notifications.", "zh-Hant": "尚未選擇權限。請再點一次以要求通知。" },
+  notificationsUnable: { en: "Unable to request notification permission.", "zh-Hant": "未能要求通知權限。" },
+
+  errHttps: { en: "Location access requires a secure connection (HTTPS).", "zh-Hant": "定位需要安全的 HTTPS 連線。" },
+  errNoGeo: { en: "Location access is unavailable in this browser.", "zh-Hant": "此瀏覽器無法使用定位。" },
+  errDenied: { en: "Location access was denied. Allow location for this site in site settings.", "zh-Hant": "定位已被拒絕。請在網站設定中允許此網站使用位置。" },
+  errLocation: { en: "Unable to get your current location.", "zh-Hant": "未能取得你目前的位置。" },
+  errSupabase: { en: "Supabase is not configured for this app yet.", "zh-Hant": "此應用程式尚未設定 Supabase。" },
+  errShare: { en: "Unable to share trip progress.", "zh-Hant": "未能分享行程進度。" },
+} satisfies Record<string, Copy>;
+
+export type MessageKey = keyof typeof MESSAGES;
+
+export function translate(
+  locale: Locale,
+  key: MessageKey,
+  vars?: Record<string, string | number>,
+) {
+  let text: string = MESSAGES[key][locale];
+  if (!vars) return text;
+  for (const [name, value] of Object.entries(vars)) {
+      text = text.split(`{${name}}`).join(String(value));
+  }
+  return text;
+}
+
+const SYSTEM_KEYS: Record<string, MessageKey> = {};
+for (const key of [
+  "errHttps",
+  "errNoGeo",
+  "errDenied",
+  "errLocation",
+  "errSupabase",
+  "errShare",
+  "httpsNeeded",
+  "notificationsUnavailable",
+  "notificationsBlocked",
+  "notificationsNoChoice",
+  "notificationsUnable",
+  "surveyUnavailable",
+  "surveyFailed",
+  "shareUnconfigured",
+  "shareFailed",
+] as const) {
+  SYSTEM_KEYS[MESSAGES[key].en] = key;
+}
+
+export function localizeSystemMessage(locale: Locale, message: string) {
+  const key = SYSTEM_KEYS[message];
+  return key ? MESSAGES[key][locale] : message;
+}

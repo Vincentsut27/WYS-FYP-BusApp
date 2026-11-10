@@ -5,6 +5,8 @@ import { ROUTES, STOPS } from "../data/routes";
 import { useLiveBusEta } from "../hooks/useLiveBusEta";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
+import { routeHeading, stopLabel } from "../i18n/content";
+import { useI18n } from "../i18n/LanguageProvider";
 import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
 import {
   getDistance,
@@ -60,6 +62,7 @@ function LiveRouteEstimate({
     destinationProgressMeters,
     routeGeometry,
   );
+  const { t } = useI18n();
   const hasLiveEta =
     estimate.status === "ready" && estimate.etaMinutes !== null;
 
@@ -72,11 +75,11 @@ function LiveRouteEstimate({
         className="text-[10px] font-semibold uppercase"
         style={{ color: "var(--muted)" }}
       >
-        {hasLiveEta ? "Live ETA" : "Scheduled arrival"}
+        {hasLiveEta ? t("liveEta") : t("scheduledArrival")}
       </div>
       {hasLiveEta ? (
         <div className="text-lg font-extrabold" style={{ color: route.color }}>
-          Live · {estimate.etaMinutes} min
+          {t("liveMinutes", { count: estimate.etaMinutes ?? 0 })}
         </div>
       ) : fallbackMinutes ? (
         <div className="mt-1 flex gap-2">
@@ -89,23 +92,23 @@ function LiveRouteEstimate({
                 color: index === 0 ? "white" : route.color,
               }}
             >
-              {minutes === null ? "--" : `${minutes} min`}
+              {minutes === null ? "--" : t("minutes", { count: minutes })}
             </div>
           ))}
         </div>
       ) : (
         <div className="mt-1 text-sm font-semibold" style={{ color: "var(--muted)" }}>
-          Beyond service hours
+          {t("beyondHours")}
         </div>
       )}
       <div className="text-[10px]" style={{ color: "var(--muted)" }}>
         {hasLiveEta
-          ? `${estimate.reportsCount} live ${estimate.reportsCount === 1 ? "report" : "reports"}`
+          ? t(estimate.reportsCount === 1 ? "liveReports" : "liveReportsPlural", { count: estimate.reportsCount })
           : estimate.status === "error"
-            ? "Live ETA unavailable · showing schedule"
+            ? t("liveUnavailable")
             : estimate.status === "unconfigured"
-              ? "Live ETA not configured · showing schedule"
-              : "Schedule countdown; actual bus timing may vary"}
+              ? t("liveUnconfigured")
+              : t("scheduleVariesShort")}
       </div>
     </div>
   );
@@ -118,6 +121,7 @@ function IllustrativeRouteEstimate({
   route: Route;
   minutes: [number, number | null] | null;
 }) {
+  const { t } = useI18n();
   return (
     <div
       className="rounded-xl px-3 py-2 text-center"
@@ -127,7 +131,7 @@ function IllustrativeRouteEstimate({
         className="text-[10px] font-semibold uppercase"
         style={{ color: "var(--muted)" }}
       >
-        Scheduled arrival
+        {t("scheduledArrival")}
       </div>
       {minutes ? (
         <div className="mt-1 flex gap-2">
@@ -140,17 +144,17 @@ function IllustrativeRouteEstimate({
                 color: index === 0 ? "white" : route.color,
               }}
             >
-              {value === null ? "--" : `${value} min`}
+              {value === null ? "--" : t("minutes", { count: value })}
             </div>
           ))}
         </div>
       ) : (
         <div className="mt-1 text-sm font-semibold" style={{ color: "var(--muted)" }}>
-          Beyond service hours
+          {t("beyondHours")}
         </div>
       )}
       <div className="text-[10px]" style={{ color: "var(--muted)" }}>
-        Schedule countdown; actual bus timing may vary
+        {t("scheduleVariesShort")}
       </div>
     </div>
   );
@@ -167,6 +171,7 @@ export function ArrivalPage({
   userHeading?: number | null;
   onSelectRoute: (routeId: string, stopId: string) => void;
 }) {
+  const { locale, t } = useI18n();
   const [subTab, setSubTab] = useState<"nearby" | "stops">("nearby");
   const [selectedStop, setSelectedStop] = useState<Stop | null>(null);
   const currentTime = useCurrentMinute();
@@ -215,10 +220,10 @@ export function ArrivalPage({
               className="text-base font-bold"
               style={{ color: "var(--text)" }}
             >
-              {selectedStop.name}
+              {stopLabel(selectedStop, locale)}
             </div>
             <div className="text-xs" style={{ color: "var(--muted)" }}>
-              Schedule-based arrival countdowns
+              {t("scheduleCountdowns")}
             </div>
           </div>
         </div>
@@ -238,14 +243,14 @@ export function ArrivalPage({
               className="px-4 py-8 text-center"
               style={{ color: "var(--muted)" }}
             >
-              No routes serve this stop.
+              {t("noRoutesStop")}
             </div>
           ) : scheduledRoutes.length === 0 ? (
             <div
               className="px-4 py-8 text-center"
               style={{ color: "var(--muted)" }}
             >
-              No buses are scheduled for this stop during the remaining service hours.
+              {t("noBusesRemaining")}
             </div>
           ) : (
             <>
@@ -254,16 +259,15 @@ export function ArrivalPage({
                   className="text-xs font-semibold uppercase tracking-widest"
                   style={{ color: "var(--muted)" }}
                 >
-                  Routes serving this stop
+                  {t("routesServing")}
                 </span>
                 {LIVE_ETA_ENABLED ? (
                   <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-                    Live estimates use opt-in rider GPS. Otherwise, countdowns
-                    follow the service schedule and segment times.
+                    {t("liveEtaHint")}
                   </p>
                 ) : (
                   <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-                    Schedule countdown; actual bus timing may vary.
+                    {t("scheduleVaries")}
                   </p>
                 )}
               </div>
@@ -293,14 +297,14 @@ export function ArrivalPage({
                           className="text-sm font-semibold"
                           style={{ color: "var(--text)" }}
                         >
-                          {route.title ?? route.description}
+                          {routeHeading(route, locale)}
                         </div>
                         {nextStop && (
                           <div
                             className="text-xs"
                             style={{ color: "var(--muted)" }}
                           >
-                            Next → {nextStop.shortName}
+                            {t("nextStopArrow", { stop: stopLabel(nextStop, locale) })}
                           </div>
                         )}
                       </div>
@@ -339,7 +343,7 @@ export function ArrivalPage({
             className="text-xl font-extrabold"
             style={{ color: "var(--text)" }}
           >
-            Arrival Times
+            {t("arrivalTitle")}
           </h1>
           <button
             onClick={onRequestGps}
@@ -362,7 +366,7 @@ export function ArrivalPage({
                   subTab === tab ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
               }}
             >
-              {tab === "nearby" ? "Near Me" : "All Stops"}
+              {tab === "nearby" ? t("nearMe") : t("allStops")}
             </button>
           ))}
         </div>
@@ -375,14 +379,14 @@ export function ArrivalPage({
           >
             <Icon path={ICONS.locate} size={18} style={{ color: "#B45309" }} />
             <span className="flex-1 text-xs" style={{ color: "#92400E" }}>
-              Allow location access to find stops near you.
+              {t("allowLocation")}
             </span>
             <button
               onClick={onRequestGps}
               className="text-xs font-bold"
               style={{ color: "#B45309" }}
             >
-              Enable
+              {t("enable")}
             </button>
           </div>
         )}
@@ -403,7 +407,7 @@ export function ArrivalPage({
             className="text-xs font-semibold uppercase tracking-widest"
             style={{ color: "var(--muted)" }}
           >
-            {subTab === "nearby" ? "Nearby Stops" : "All Stops"}
+            {subTab === "nearby" ? t("nearbyStops") : t("allStops")}
           </span>
         </div>
         {(gpsPosition ? stopList : subTab === "nearby" ? [] : stopList).map(
@@ -430,7 +434,7 @@ export function ArrivalPage({
                     className="text-sm font-medium"
                     style={{ color: "var(--text)" }}
                   >
-                    {stop.name}
+                    {stopLabel(stop, locale)}
                   </div>
                 </div>
                 {typeof distance === "number" && (
@@ -439,8 +443,8 @@ export function ArrivalPage({
                     style={{ color: "var(--muted)" }}
                   >
                     {distance < 1000
-                      ? `${distance}m`
-                      : `${(distance / 1000).toFixed(1)}km`}
+                      ? locale === "zh-Hant" ? `${distance} 米` : `${distance}m`
+                      : locale === "zh-Hant" ? `${(distance / 1000).toFixed(1)} 公里` : `${(distance / 1000).toFixed(1)}km`}
                   </span>
                 )}
                 <Icon

@@ -1,6 +1,7 @@
 export interface Stop {
   id: string;
   name: string;
+  nameZh: string;
   shortName: string;
   lat: number;
   lng: number;
@@ -9,6 +10,7 @@ export interface Stop {
 export interface CampusBuilding {
   id: string;
   name: string;
+  nameZh: string;
   abbr: string;
   lat: number;
   lng: number;

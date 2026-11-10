@@ -3,7 +3,16 @@ import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
-import { getRouteArrivalMinutes, getRouteTitle } from "../lib/transit";
+import {
+  frequency,
+  operatingDays,
+  routeDescription,
+  routeTitle,
+  serviceHours,
+  stopLabel,
+} from "../i18n/content";
+import { useI18n } from "../i18n/LanguageProvider";
+import { getRouteArrivalMinutes } from "../lib/transit";
 import type { Route } from "../types/transit";
 
 export function RoutesPage({
@@ -15,6 +24,7 @@ export function RoutesPage({
   presetStopId?: string;
   onPresetApplied: () => void;
 }) {
+  const { locale, t } = useI18n();
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
@@ -60,13 +70,13 @@ export function RoutesPage({
               className="text-lg font-bold"
               style={{ color: selectedRoute.color }}
             >
-              Route {getRouteTitle(selectedRoute)}
+              {t("routeWord", { name: routeTitle(selectedRoute, locale) })}
             </span>
             <span
               className="text-sm font-medium"
               style={{ color: "var(--muted)" }}
             >
-              · {selectedRoute.description}
+              · {routeDescription(selectedRoute, locale)}
             </span>
           </div>
           <button
@@ -74,7 +84,7 @@ export function RoutesPage({
             className="text-sm font-semibold px-3 py-1 rounded-full"
             style={{ color: "var(--purple)", background: "var(--purple-pale)" }}
           >
-            Info
+            {t("info")}
           </button>
         </div>
 
@@ -99,7 +109,7 @@ export function RoutesPage({
             }}
           />
           <div className="absolute bottom-2 left-2 text-[9px] text-gray-400 bg-white/70 px-1.5 py-0.5 rounded">
-            Tap stop to highlight
+            {t("tapStop")}
           </div>
         </div>
 
@@ -109,10 +119,10 @@ export function RoutesPage({
               className="text-xs font-semibold uppercase tracking-widest"
               style={{ color: "var(--muted)" }}
             >
-              {stops.length} Stops
+              {t("stopCount", { count: stops.length })}
             </span>
             <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
-              Approximate arrival times for the next two departures.
+              {t("arrivalApprox")}
             </p>
           </div>
           {stops.map((stop, index) => {
@@ -178,7 +188,7 @@ export function RoutesPage({
                           : "var(--text)",
                       }}
                     >
-                      {index + 1}. {stop.name}
+                      {index + 1}. {stopLabel(stop, locale)}
                     </span>
                     {arrivals ? (
                       <div className="mt-0.5 flex gap-2">
@@ -188,7 +198,7 @@ export function RoutesPage({
                             className="text-xs font-semibold"
                             style={{ color: selectedRoute.color }}
                           >
-                            {minutes === null ? "--" : `${minutes} min`}
+                            {minutes === null ? "--" : t("minutes", { count: minutes })}
                           </span>
                         ))}
                       </div>
@@ -197,7 +207,7 @@ export function RoutesPage({
                         className="mt-0.5 text-xs font-semibold"
                         style={{ color: "var(--muted)" }}
                       >
-                        Beyond service hours
+                        {t("beyondHours")}
                       </div>
                     )}
                   </div>
@@ -223,7 +233,7 @@ export function RoutesPage({
                 onClick={() => setShowDetail(false)}
                 className="absolute top-4 left-4 text-sm font-semibold px-4 py-1.5 rounded-full bg-white shadow-sm"
               >
-                Close
+                {t("close")}
               </button>
               <div
                 className="px-6 pt-14 pb-8"
@@ -239,7 +249,7 @@ export function RoutesPage({
                     color: "white",
                   }}
                 >
-                  {selectedRoute.description}
+                  {routeDescription(selectedRoute, locale)}
                 </div>
               </div>
               <div className="p-4 space-y-3">
@@ -247,24 +257,24 @@ export function RoutesPage({
                   {[
                     {
                       icon: ICONS.info,
-                      label: "Operating Days",
-                      value: selectedRoute.operatingDays,
+                      label: t("operatingDays"),
+                      value: operatingDays(selectedRoute.operatingDays, locale),
                     },
                     {
                       icon: ICONS.clock,
-                      label: "Service Hours",
-                      value: selectedRoute.serviceHours,
+                      label: t("serviceHours"),
+                      value: serviceHours(selectedRoute.serviceHours, locale),
                     },
                     {
                       icon: ICONS.bus,
-                      label: "Frequency",
-                      value: selectedRoute.frequency,
+                      label: t("frequency"),
+                      value: frequency(selectedRoute, locale),
                     },
                     ...(selectedRoute.notes
                       ? [
                           {
                             icon: ICONS.info,
-                            label: "Note",
+                            label: t("note"),
                             value: selectedRoute.notes,
                           },
                         ]
@@ -309,7 +319,7 @@ export function RoutesPage({
           className="text-3xl font-extrabold"
           style={{ color: "var(--text)" }}
         >
-          Route List
+          {t("routeList")}
         </h1>
       </div>
       <div className="flex-1 scrollable">
@@ -331,10 +341,10 @@ export function RoutesPage({
                 className="text-base font-semibold"
                 style={{ color: "var(--text)" }}
               >
-                {getRouteTitle(route)}
+                {routeTitle(route, locale)}
               </div>
               <div className="text-sm" style={{ color: "var(--muted)" }}>
-                {route.description}
+                {routeDescription(route, locale)}
               </div>
             </div>
             <Icon path={ICONS.chevronRight} size={18} className="opacity-30" />

@@ -1,37 +1,37 @@
 import type { Route, Stop } from "../types/transit";
 
-function makeStop(id: string, name: string, lat: number, lng: number): Stop {
-  return { id, name, shortName: name, lat, lng };
+function makeStop(id: string, name: string, nameZh: string, lat: number, lng: number): Stop {
+  return { id, name, nameZh, shortName: name, lat, lng };
 }
 
 export const STOPS: Record<string, Stop> = {
-  universityStation: makeStop("universityStation", "Univ. MTR Station", 22.414591596662277, 114.2103213737358),
-  sports: makeStop("sports", "Univ. Sports Centre", 22.417786, 114.210515),
-  runrunshawHall: makeStop("runrunshawHall", "Sir Run Run Shaw Hall", 22.419865390456728, 114.20697616419724),
-  admin: makeStop("admin", "Univ. Admin. Bldg.", 22.418812277340415, 114.2053521300643),
-  shHo: makeStop("shHo", "S.H. Ho College", 22.417999, 114.209951),
-  stationPiazza: makeStop("stationPiazza", "MTR Station Piazza", 22.41402418241919, 114.20951365384028),
-  fungKingHey: makeStop("fungKingHey", "Fung King Hey Bldg.", 22.420004165692188, 114.20314134034673),
-  unitedUp: makeStop("unitedUp", "United College (Upward)", 22.42033254674031, 114.20540209166288),
-  unitedDown: makeStop("unitedDown", "United College (Central Campus Direction)", 22.42033254674031, 114.20540209166288),
-  newAsia: makeStop("newAsia", "New Asia College (Central Campus Direction)", 22.421349, 114.207530),
-  newAsiaCircle: makeStop("newAsiaCircle", "New Asia Circle", 22.421072776114638, 114.20765936415471),
-  postgraduateHall1: makeStop("postgraduateHall1", "Postgraduate Hall 1", 22.420263, 114.212156),
-  yiap: makeStop("yiap", "Y.I.A.P.", 22.415976075794102, 114.21082288564051),
-  scienceCentre: makeStop("scienceCentre", "Science Centre", 22.419861083772084, 114.20719703276638),
-  wuYeeSunUp: makeStop("wuYeeSunUp", "Wu Yee Sun College (Upward)", 22.42118818776006, 114.2034603496885),
-  wuYeeSunDown: makeStop("wuYeeSunDown", "Wu Yee Sun College (Downward)", 22.42118818776006, 114.2034603496885),
-  shawNorth: makeStop("shawNorth", "Shaw College (Circuit North Direction)", 22.422482793334858, 114.20129809371062),
-  shawCentral: makeStop("shawCentral", "Shaw College (Central Campus Direction)", 22.422482793334858, 114.20129809371062),
-  cwChuNorth: makeStop("cwChuNorth", "C.W. Chu College (to Area39)", 22.425662, 114.206056),
-  cwChuCentral: makeStop("cwChuCentral", "C.W. Chu College (Central Campus Direction)", 22.425662, 114.206056),
-  area39: makeStop("area39", "Area 39", 22.427561, 114.204514),
-  universityResidence15: makeStop("universityResidence15", "University Residence No. 15", 22.423765, 114.206629),
-  ucStaff: makeStop("ucStaff", "U.C. Staff Residence", 22.423007, 114.205779),
-  chanChunHa: makeStop("chanChunHa", "Chan Chun Ha Hostel", 22.42201994564561, 114.20494713239741),
-  chungChiTeaching: makeStop("chungChiTeaching", "Chung Chi Teaching Bldg.", 22.416110051980585, 114.20836398267592),
-  circuitEast: makeStop("circuitEast", "Campus Circuit East", 22.42081397563455, 114.21269586733412),
-  circuitNorth: makeStop("circuitNorth", "Campus Circuit North", 22.425648654353616, 114.20674541151153),
+  universityStation: makeStop("universityStation", "Univ. MTR Station", "大學站", 22.414591596662277, 114.2103213737358),
+  sports: makeStop("sports", "Univ. Sports Centre", "大學體育中心", 22.417786, 114.210515),
+  runrunshawHall: makeStop("runrunshawHall", "Sir Run Run Shaw Hall", "邵逸夫堂", 22.419865390456728, 114.20697616419724),
+  admin: makeStop("admin", "Univ. Admin. Bldg.", "大學行政樓", 22.418812277340415, 114.2053521300643),
+  shHo: makeStop("shHo", "S.H. Ho College", "善衡書院", 22.417999, 114.209951),
+  stationPiazza: makeStop("stationPiazza", "MTR Station Piazza", "港鐵站廣場", 22.41402418241919, 114.20951365384028),
+  fungKingHey: makeStop("fungKingHey", "Fung King Hey Bldg.", "馮景禧樓", 22.420004165692188, 114.20314134034673),
+  unitedUp: makeStop("unitedUp", "United College (Upward)", "聯合書院（上行）", 22.42033254674031, 114.20540209166288),
+  unitedDown: makeStop("unitedDown", "United College (Central Campus Direction)", "聯合書院（中大方向）", 22.42033254674031, 114.20540209166288),
+  newAsia: makeStop("newAsia", "New Asia College (Central Campus Direction)", "新亞書院（中大方向）", 22.421349, 114.207530),
+  newAsiaCircle: makeStop("newAsiaCircle", "New Asia Circle", "新亞坊", 22.421072776114638, 114.20765936415471),
+  postgraduateHall1: makeStop("postgraduateHall1", "Postgraduate Hall 1", "研究生宿舍第1座", 22.420263, 114.212156),
+  yiap: makeStop("yiap", "Y.I.A.P.", "康本國際學術園", 22.415976075794102, 114.21082288564051),
+  scienceCentre: makeStop("scienceCentre", "Science Centre", "科學館", 22.419861083772084, 114.20719703276638),
+  wuYeeSunUp: makeStop("wuYeeSunUp", "Wu Yee Sun College (Upward)", "伍宜孫書院（上行）", 22.42118818776006, 114.2034603496885),
+  wuYeeSunDown: makeStop("wuYeeSunDown", "Wu Yee Sun College (Downward)", "伍宜孫書院（下行）", 22.42118818776006, 114.2034603496885),
+  shawNorth: makeStop("shawNorth", "Shaw College (Circuit North Direction)", "逸夫書院（環迴北行）", 22.422482793334858, 114.20129809371062),
+  shawCentral: makeStop("shawCentral", "Shaw College (Central Campus Direction)", "逸夫書院（中大方向）", 22.422482793334858, 114.20129809371062),
+  cwChuNorth: makeStop("cwChuNorth", "C.W. Chu College (to Area39)", "敬文書院（往39區）", 22.425662, 114.206056),
+  cwChuCentral: makeStop("cwChuCentral", "C.W. Chu College (Central Campus Direction)", "敬文書院（中大方向）", 22.425662, 114.206056),
+  area39: makeStop("area39", "Area 39", "39區", 22.427561, 114.204514),
+  universityResidence15: makeStop("universityResidence15", "University Residence No. 15", "大學宿舍第15座", 22.423765, 114.206629),
+  ucStaff: makeStop("ucStaff", "U.C. Staff Residence", "聯合書院教職員宿舍", 22.423007, 114.205779),
+  chanChunHa: makeStop("chanChunHa", "Chan Chun Ha Hostel", "陳震夏館", 22.42201994564561, 114.20494713239741),
+  chungChiTeaching: makeStop("chungChiTeaching", "Chung Chi Teaching Bldg.", "崇基教學樓", 22.416110051980585, 114.20836398267592),
+  circuitEast: makeStop("circuitEast", "Campus Circuit East", "環迴東路", 22.42081397563455, 114.21269586733412),
+  circuitNorth: makeStop("circuitNorth", "Campus Circuit North", "環迴北路", 22.425648654353616, 114.20674541151153),
 };
 
 export const ROUTES: Route[] = [
