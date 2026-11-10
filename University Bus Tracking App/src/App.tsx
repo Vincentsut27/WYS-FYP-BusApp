@@ -76,10 +76,7 @@ export default function App() {
   );
   useEffect(() => {
     if (
-      (trackerOnly ||
-        tab === "arrival" ||
-        tab === "search" ||
-        tab === "track") &&
+      (trackerOnly || tab === "arrival" || tab === "track") &&
       !gps.position &&
       !gps.error
     ) {

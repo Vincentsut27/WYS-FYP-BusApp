@@ -63,7 +63,9 @@ export function TrackPage({
     null,
   );
   const [startStopManuallySet, setStartStopManuallySet] = useState(false);
-  const [nearestStop, setNearestStop] = useState<Stop | null>(null);
+  const [nearestStopRouteIndex, setNearestStopRouteIndex] = useState<
+    number | null
+  >(null);
   const [showRoutePicker, setShowRoutePicker] = useState(false);
   const [showDestPicker, setShowDestPicker] = useState(false);
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -218,7 +220,7 @@ export function TrackPage({
   };
   useEffect(() => {
     if (!trackingPosition || routeStops.length === 0) {
-      setNearestStop(null);
+      setNearestStopRouteIndex(null);
       return;
     }
     let nearest = routeStops[0];
@@ -237,7 +239,7 @@ export function TrackPage({
         nearestRouteIndex = index;
       }
     });
-    setNearestStop(nearest);
+    setNearestStopRouteIndex(nearestRouteIndex);
     if (!startStopManuallySet && !tripStarted) {
       setStartStop(nearest);
       setStartStopRouteIndex(nearestRouteIndex);
@@ -823,7 +825,7 @@ export function TrackPage({
                 >
                   {getCanonicalStopName(stop.name)}
                 </span>
-                {nearestStop?.id === stop.id && (
+                {nearestStopRouteIndex === index && (
                   <div
                     className="text-[10px] font-semibold mt-0.5"
                     style={{ color: "#16A34A" }}

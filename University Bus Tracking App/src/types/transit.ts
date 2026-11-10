@@ -9,6 +9,7 @@ export interface Stop {
 export interface CampusBuilding {
   id: string;
   name: string;
+  abbr: string;
   lat: number;
   lng: number;
 }

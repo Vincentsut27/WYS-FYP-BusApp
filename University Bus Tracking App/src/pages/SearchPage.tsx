@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Icon, ICONS } from "../components/Icon";
-import { CAMPUS_BUILDINGS } from "../data/buildings";
+import { CAMPUS_BUILDINGS, formatBuildingName } from "../data/buildings";
 import { ROUTES, STOPS } from "../data/routes";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import {
-  getArrivals,
   getCanonicalStopName,
   getDistance,
   getRouteArrivalMinutes,
@@ -155,8 +154,10 @@ export function SearchPage({
     stop.name.toLowerCase().includes(query.toLowerCase()),
   );
   const physicalStops = getPhysicalStops();
+  const placeSearch = placeQuery.trim().toLowerCase();
   const filteredBuildings = CAMPUS_BUILDINGS.filter((building) =>
-    building.name.toLowerCase().includes(placeQuery.toLowerCase()),
+    building.name.toLowerCase().includes(placeSearch) ||
+    building.abbr.toLowerCase().includes(placeSearch),
   );
   const filteredPhysicalStops = physicalStops.filter((stop) =>
     stop.name.toLowerCase().includes(placeQuery.toLowerCase()),
@@ -244,14 +245,7 @@ export function SearchPage({
   }
 
   function search() {
-    if (!from || !to) {
-      if (!gpsPosition) onRequestGps();
-      return;
-    }
-    if (!gpsPosition) {
-      onRequestGps();
-      return;
-    }
+    if (!from || !to) return;
     const now = new Date();
     const directRoutes = ROUTES.filter((route) =>
       getSearchRouteTrip(route, from, to),
@@ -313,10 +307,7 @@ export function SearchPage({
           <>
         <div className="relative">
           <button
-            onClick={() => {
-              if (!gpsPosition) onRequestGps();
-              setSelecting("from");
-            }}
+            onClick={() => setSelecting("from")}
             className="w-full text-left px-4 py-3.5 rounded-2xl border mb-2 flex items-center gap-3"
             style={{
               borderColor:
@@ -340,10 +331,7 @@ export function SearchPage({
             <Icon path={ICONS.swap} size={16} />
           </button>
           <button
-            onClick={() => {
-              if (!gpsPosition) onRequestGps();
-              setSelecting("to");
-            }}
+            onClick={() => setSelecting("to")}
             className="w-full text-left px-4 py-3.5 rounded-2xl border flex items-center gap-3"
             style={{
               borderColor:
@@ -397,7 +385,7 @@ export function SearchPage({
                       Selected destination
                     </div>
                     <div className="mt-1 text-base font-bold" style={{ color: "var(--text)" }}>
-                      {selectedBuilding.name}
+                      {formatBuildingName(selectedBuilding)}
                     </div>
                     {buildingNearestStop && (
                       <div className="mt-1 text-xs" style={{ color: "var(--muted)" }}>
@@ -504,7 +492,7 @@ export function SearchPage({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
-                        {building.name}
+                        {formatBuildingName(building)}
                       </span>
                       <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--muted)" }}>
                         Teaching · near {getCanonicalStopName(nearestStop.name)}
@@ -612,7 +600,9 @@ export function SearchPage({
                   trip.startIndex,
                   trip.endIndex,
                 );
-                const arrivalMinutes = getArrivals(from!.id + route.id)[0];
+                const arrivalMinutes =
+                  getRouteArrivalMinutes(route, trip.startIndex, currentTime)?.[0] ??
+                  null;
                 return (
                   <div
                     key={route.id}
@@ -650,13 +640,13 @@ export function SearchPage({
                           className="text-lg font-extrabold"
                           style={{ color: route.color }}
                         >
-                          {arrivalMinutes}
+                          {arrivalMinutes === null ? "--" : arrivalMinutes}
                         </div>
                         <div
                           className="text-[10px]"
                           style={{ color: "var(--muted)" }}
                         >
-                          min away
+                          {arrivalMinutes === null ? "no bus" : "min away"}
                         </div>
                       </div>
                     </div>
@@ -725,7 +715,9 @@ export function SearchPage({
                         <div className="space-y-1">
                           {route.stopIds.map((stopId, index) => {
                             const stop = STOPS[stopId];
-                            const highlighted = trip.stops.includes(stopId);
+                            const highlighted =
+                              index >= trip.startIndex &&
+                              index <= trip.endIndex;
                             return (
                               <div
                                 key={`${stopId}-${index}`}

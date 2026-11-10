@@ -5,11 +5,6 @@ export function getRouteTitle(route: Pick<Route, "label" | "title">) {
   return route.title ?? route.label;
 }
 
-export function getArrivals(stopId: string) {
-  const seed = stopId.charCodeAt(0) + stopId.charCodeAt(stopId.length - 1);
-  const base = [3, 8, 18, 23, 33];
-  return base.map((value) => (value + (seed % 7)) % 60 || 1);
-}
 function getScheduledDepartureMinutes(route: Route, window: [number, number]) {
   if (route.departureIntervals?.length) {
     const departures: number[] = [];

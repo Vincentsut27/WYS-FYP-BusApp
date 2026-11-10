@@ -17,21 +17,22 @@ export function RoutesPage({
 }) {
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
   const [showDetail, setShowDetail] = useState(false);
-  const [highlightStop, setHighlightStop] = useState<string | null>(null);
+  const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
   const [focusNonce, setFocusNonce] = useState(0);
   const currentTime = useCurrentMinute();
 
-  const selectStop = (stopId: string) => {
-    setHighlightStop(stopId);
+  const selectStop = (index: number) => {
+    setHighlightIndex(index);
     setFocusNonce((value) => value + 1);
   };
 
   useEffect(() => {
     if (!presetRouteId || !presetStopId) return;
     const route = ROUTES.find((candidate) => candidate.id === presetRouteId);
-    if (!route || !route.stopIds.includes(presetStopId)) return;
+    const stopIndex = route?.stopIds.indexOf(presetStopId) ?? -1;
+    if (!route || stopIndex < 0) return;
     setSelectedRoute(route);
-    setHighlightStop(presetStopId);
+    setHighlightIndex(stopIndex);
     setFocusNonce((value) => value + 1);
     onPresetApplied();
   }, [presetRouteId, presetStopId, onPresetApplied]);
@@ -47,7 +48,7 @@ export function RoutesPage({
           <button
             onClick={() => {
               setSelectedRoute(null);
-              setHighlightStop(null);
+              setHighlightIndex(null);
             }}
             className="w-9 h-9 rounded-full flex items-center justify-center"
             style={{ background: "var(--bg)" }}
@@ -80,11 +81,22 @@ export function RoutesPage({
         <div className="relative bg-white shadow-sm">
           <CampusMap
             routeId={selectedRoute.id}
-            highlightStopId={highlightStop ?? undefined}
-            focusStopId={highlightStop ?? undefined}
+            highlightStopId={
+              highlightIndex === null
+                ? undefined
+                : selectedRoute.stopIds[highlightIndex]
+            }
+            focusStopId={
+              highlightIndex === null
+                ? undefined
+                : selectedRoute.stopIds[highlightIndex]
+            }
             focusNonce={focusNonce}
             height={220}
-            onStopClick={(stop) => selectStop(stop.id)}
+            onStopClick={(stop) => {
+              const stopIndex = selectedRoute.stopIds.indexOf(stop.id);
+              if (stopIndex >= 0) selectStop(stopIndex);
+            }}
           />
           <div className="absolute bottom-2 left-2 text-[9px] text-gray-400 bg-white/70 px-1.5 py-0.5 rounded">
             Tap stop to highlight
@@ -104,7 +116,7 @@ export function RoutesPage({
             </p>
           </div>
           {stops.map((stop, index) => {
-            const isHighlighted = stop.id === highlightStop;
+            const isHighlighted = index === highlightIndex;
             const isLast = index === stops.length - 1;
             const arrivals = getRouteArrivalMinutes(
               selectedRoute,
@@ -114,7 +126,7 @@ export function RoutesPage({
             return (
               <button
                 key={`${stop.id}-${index}`}
-                onClick={() => selectStop(stop.id)}
+                onClick={() => selectStop(index)}
                 className="w-full flex items-stretch gap-4 px-4 text-left transition-colors"
                 style={{
                   background: isHighlighted ? "var(--purple-pale)" : "white",
