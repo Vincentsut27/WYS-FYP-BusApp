@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
@@ -12,7 +12,7 @@ import {
   stopLabel,
 } from "../i18n/content";
 import { useI18n } from "../i18n/LanguageProvider";
-import { getRouteArrivalMinutes } from "../lib/transit";
+import { getRouteStopArrivals } from "../lib/transit";
 import { recordUsage } from "../lib/usage";
 import type { Route } from "../types/transit";
 
@@ -31,6 +31,11 @@ export function RoutesPage({
   const [highlightIndex, setHighlightIndex] = useState<number | null>(null);
   const [focusNonce, setFocusNonce] = useState(0);
   const currentTime = useCurrentMinute();
+  const stopArrivals = useMemo(
+    () =>
+      selectedRoute ? getRouteStopArrivals(selectedRoute, currentTime) : [],
+    [selectedRoute, currentTime],
+  );
 
   const selectStop = (index: number) => {
     setHighlightIndex(index);
@@ -130,11 +135,7 @@ export function RoutesPage({
           {stops.map((stop, index) => {
             const isHighlighted = index === highlightIndex;
             const isLast = index === stops.length - 1;
-            const arrivals = getRouteArrivalMinutes(
-              selectedRoute,
-              index,
-              currentTime,
-            );
+            const arrivals = stopArrivals[index];
             return (
               <button
                 key={`${stop.id}-${index}`}

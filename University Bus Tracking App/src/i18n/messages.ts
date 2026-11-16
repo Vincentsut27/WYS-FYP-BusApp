@@ -118,7 +118,7 @@ export const MESSAGES = {
   now: { en: "Now", "zh-Hant": "即將" },
   busArrival: { en: "bus arrival", "zh-Hant": "巴士到站" },
   campusBuildings: { en: "Campus buildings", "zh-Hant": "校園大樓" },
-  teachingNear: { en: "Teaching · near {stop}", "zh-Hant": "教學大樓 · 近{stop}" },
+  teachingNear: { en: "Near {stop}", "zh-Hant": "近{stop}" },
   showMoreBuildings: { en: "Show 10 more buildings", "zh-Hant": "顯示多 10 座大樓" },
   busStops: { en: "Bus stops", "zh-Hant": "巴士站" },
   showMoreStops: { en: "Show 10 more stops", "zh-Hant": "顯示多 10 個車站" },

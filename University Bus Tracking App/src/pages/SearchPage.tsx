@@ -162,10 +162,12 @@ export function SearchPage({
   });
   const physicalStops = getPhysicalStops();
   const placeSearch = placeQuery.trim().toLowerCase();
+  const compactPlaceSearch = placeSearch.replace(/\s+/g, "");
   const filteredBuildings = CAMPUS_BUILDINGS.filter((building) =>
     building.name.toLowerCase().includes(placeSearch) ||
     building.nameZh.toLowerCase().includes(placeSearch) ||
-    building.abbr.toLowerCase().includes(placeSearch),
+    building.abbr.toLowerCase().includes(placeSearch) ||
+    building.abbr.toLowerCase().replace(/\s+/g, "").includes(compactPlaceSearch),
   );
   const filteredPhysicalStops = physicalStops.filter((stop) =>
     stop.name.toLowerCase().includes(placeSearch) ||

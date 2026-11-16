@@ -78,37 +78,66 @@ function getScheduledDepartureMinutes(route: Route, window: [number, number]) {
   return departures.sort((first, second) => first - second);
 }
 
+function roundArrivalMinutes(arrivalMs: number, nowMs: number) {
+  return Math.floor((arrivalMs - nowMs + 30_000) / 60_000);
+}
+
+export function getRouteStopArrivals(
+  route: Route,
+  now = new Date(),
+): ([number, number | null] | null)[] {
+  const stopCount = route.stopIds.length;
+  const window = getOperatingWindow(route, now);
+  const currentMinute = now.getHours() * 60 + now.getMinutes();
+  if (!window || currentMinute < window[0]) {
+    return Array.from({ length: stopCount }, () => null);
+  }
+
+  const cumulativeSeconds: number[] = [];
+  let traveled = 0;
+  for (let index = 0; index < stopCount; index += 1) {
+    cumulativeSeconds.push(traveled);
+    traveled += route.travelTimesSeconds[index] ?? 0;
+  }
+
+  const nowMs = now.getTime();
+  const serviceDate = new Date(now);
+  serviceDate.setHours(0, 0, 0, 0);
+  const departures = getScheduledDepartureMinutes(route, window).map(
+    (departureMinute) => {
+      const departure = new Date(serviceDate);
+      departure.setMinutes(departureMinute);
+      let previous: number | null = null;
+      return cumulativeSeconds.map((travelSeconds) => {
+        const arrivalMs = departure.getTime() + travelSeconds * 1000;
+        if (arrivalMs < nowMs) {
+          previous = null;
+          return null;
+        }
+        const raw = roundArrivalMinutes(arrivalMs, nowMs);
+        const shown = previous !== null && raw <= previous ? previous + 1 : raw;
+        previous = shown;
+        return shown;
+      });
+    },
+  );
+
+  return cumulativeSeconds.map((_, stopIndex) => {
+    const upcoming = departures.flatMap((stops) => {
+      const minutes = stops[stopIndex];
+      return minutes === null ? [] : [minutes];
+    });
+    if (upcoming.length === 0) return null;
+    return [upcoming[0], upcoming[1] ?? null];
+  });
+}
+
 export function getRouteArrivalMinutes(
   route: Route,
   stopIndex: number,
   now = new Date(),
 ): [number, number | null] | null {
-  const window = getOperatingWindow(route, now);
-  if (!window) return null;
-
-  const currentMinute = now.getHours() * 60 + now.getMinutes();
-  if (currentMinute < window[0]) return null;
-
-  const travelSeconds = route.travelTimesSeconds
-    .slice(0, Math.max(0, stopIndex))
-    .reduce((total, seconds) => total + seconds, 0);
-  const nowMs = now.getTime();
-  const arrivals: number[] = [];
-
-  const serviceDate = new Date(now);
-  serviceDate.setHours(0, 0, 0, 0);
-  for (const departureMinute of getScheduledDepartureMinutes(route, window)) {
-    const departure = new Date(serviceDate);
-    departure.setMinutes(departureMinute);
-    const arrivalMs = departure.getTime() + travelSeconds * 1000;
-    if (arrivalMs < nowMs) continue;
-
-    arrivals.push(Math.floor((arrivalMs - nowMs + 30_000) / 60_000));
-    if (arrivals.length === 2) break;
-  }
-
-  if (arrivals.length === 0) return null;
-  return [arrivals[0], arrivals[1] ?? null];
+  return getRouteStopArrivals(route, now)[stopIndex] ?? null;
 }
 
 export function getRouteTripMinutes(
