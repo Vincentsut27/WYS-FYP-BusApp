@@ -368,12 +368,15 @@ export function TrackPage({
     return [userPosition, [startStop.lat, startStop.lng]];
   }, [userPosition, startStop, startGuidanceDismissed]);
   const buildingGuidancePoints = useMemo<[number, number][] | null>(() => {
-    if (!destStop || !destinationBuilding) return null;
-    return [
-      [destStop.lat, destStop.lng],
-      [destinationBuilding.lat, destinationBuilding.lng],
+    if (!destinationBuilding) return null;
+    const buildingPoint: [number, number] = [
+      destinationBuilding.lat,
+      destinationBuilding.lng,
     ];
-  }, [destStop, destinationBuilding]);
+    if (userPosition) return [userPosition, buildingPoint];
+    if (!destStop) return null;
+    return [[destStop.lat, destStop.lng], buildingPoint];
+  }, [userPosition, destStop, destinationBuilding]);
 
   useEffect(() => {
     if (!userPosition || !startStop || startGuidanceDismissed) return;
