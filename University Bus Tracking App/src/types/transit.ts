@@ -26,10 +26,10 @@ export interface Route {
   serviceHours: string;
   frequency: string;
   notes?: string;
+  departureMinutes?: number[];
   stopIds: string[];
   travelTimesSeconds: number[];
-  departureIntervals?: number[];
-  departureMinutes?: number[];
+  stopTimeSeconds: number;
 }
 
 export type SearchStop = Stop & { searchIds: string[] };

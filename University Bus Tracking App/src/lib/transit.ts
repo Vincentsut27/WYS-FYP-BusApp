@@ -1,25 +1,7 @@
 import { STOPS } from "../data/routes";
 import type { Route, SearchStop, Stop } from "../types/transit";
 
-export function getRouteTitle(route: Pick<Route, "label" | "title">) {
-  return route.title ?? route.label;
-}
-
 function getScheduledDepartureMinutes(route: Route, window: [number, number]) {
-  if (route.departureIntervals?.length) {
-    const departures: number[] = [];
-    let minute = window[0];
-    let intervalIndex = 0;
-    while (minute <= window[1]) {
-      departures.push(minute);
-      minute += route.departureIntervals[
-        intervalIndex % route.departureIntervals.length
-      ];
-      intervalIndex += 1;
-    }
-    return departures;
-  }
-
   if (route.departureMinutes?.length) {
     const departures: number[] = [];
     const firstHour = Math.floor(window[0] / 60);
@@ -98,6 +80,9 @@ export function getRouteStopArrivals(
   for (let index = 0; index < stopCount; index += 1) {
     cumulativeSeconds.push(traveled);
     traveled += route.travelTimesSeconds[index] ?? 0;
+    if (index != stopCount-1){
+      traveled += route.stopTimeSeconds;
+    }
   }
 
   const nowMs = now.getTime();
@@ -145,9 +130,12 @@ export function getRouteTripMinutes(
   startIndex: number,
   endIndex: number,
 ) {
-  const tripSeconds = route.travelTimesSeconds
-    .slice(startIndex, endIndex)
-    .reduce((total, seconds) => total + seconds, 0);
+  const hopCount = endIndex - startIndex;
+  const tripSeconds =
+    route.travelTimesSeconds
+      .slice(startIndex, endIndex)
+      .reduce((total, seconds) => total + seconds, 0) +
+    hopCount * route.stopTimeSeconds;
   return Math.floor((tripSeconds + 30) / 60);
 }
 
@@ -209,9 +197,11 @@ export function getSearchRouteTrip(
         {
           stops: route.stopIds.slice(startIndex, endIndex + 1),
           count: endIndex - startIndex,
-          travelTimeSeconds: route.travelTimesSeconds
-            .slice(startIndex, endIndex)
-            .reduce((total, seconds) => total + seconds, 0),
+          travelTimeSeconds:
+            route.travelTimesSeconds
+              .slice(startIndex, endIndex)
+              .reduce((total, seconds) => total + seconds, 0) +
+            (endIndex - startIndex) * route.stopTimeSeconds,
           startIndex,
           endIndex,
         },

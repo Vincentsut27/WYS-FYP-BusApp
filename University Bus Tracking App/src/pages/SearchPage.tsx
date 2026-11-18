@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, ICONS } from "../components/Icon";
 import { CAMPUS_BUILDINGS } from "../data/buildings";
 import { ROUTES, STOPS } from "../data/routes";
 import {
   distanceByPath,
   useCampusWalkingDistances,
+  type WalkingDistanceLookup,
 } from "../hooks/useCampusWalkingDistances";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import { buildingLabel, routeHeading, stopLabel } from "../i18n/content";
@@ -37,11 +38,25 @@ interface BuildingRouteOption {
   arrivalMinutes: number;
 }
 
-function getBuildingRouteOptions(
-  origin: Stop,
-  destination: Stop,
+const WALKING_METERS_PER_SECOND = 1.4;
+
+function metersFromUser(
+  walkingDistances: WalkingDistanceLookup,
+  userPosition: [number, number],
+  stop: Stop,
+) {
+  return distanceByPath(
+    walkingDistances,
+    [stop.lat, stop.lng],
+    getDistance(userPosition[0], userPosition[1], stop.lat, stop.lng),
+  );
+}
+
+function getBuildingRoutes(
   userPosition: [number, number],
   building: CampusBuilding,
+  walkingDistances: WalkingDistanceLookup,
+  destinations: Array<{ stop: Stop; distance: number }>,
   now: Date,
 ) {
   const options: BuildingRouteOption[] = [];
@@ -49,54 +64,72 @@ function getBuildingRouteOptions(
     if (!isRouteOperatingNow(route, now)) continue;
     let bestOption: BuildingRouteOption | null = null;
     for (let startIndex = 0; startIndex < route.stopIds.length - 1; startIndex += 1) {
-      const startStopId = route.stopIds[startIndex];
-      const startStop = STOPS[startStopId];
-      if (!startStop || !sameStopLocation(startStop, origin)) continue;
+      const startStop = STOPS[route.stopIds[startIndex]];
+      if (!startStop) continue;
       const arrivals = getRouteArrivalMinutes(route, startIndex, now);
       if (!arrivals) continue;
 
-      for (let endIndex = startIndex + 1; endIndex < route.stopIds.length; endIndex += 1) {
-        const endStopId = route.stopIds[endIndex];
-        const endStop = STOPS[endStopId];
-        if (!endStop || !sameStopLocation(endStop, destination)) continue;
-        const option: BuildingRouteOption = {
-          route,
-          startStopId,
-          endStopId,
-          startStopIndex: startIndex,
-          endStopIndex: endIndex,
-          startStop,
-          endStop,
-          rideMinutes: getRouteTripMinutes(route, startIndex, endIndex),
-          walkToStartMeters: getDistance(
-            userPosition[0],
-            userPosition[1],
-            origin.lat,
-            origin.lng,
-          ),
-          walkToBuildingMeters: getDistance(
-            building.lat,
-            building.lng,
-            destination.lat,
-            destination.lng,
-          ),
-          arrivalMinutes: arrivals[0],
-        };
-        if (
-          !bestOption ||
-          option.arrivalMinutes < bestOption.arrivalMinutes ||
-          (option.arrivalMinutes === bestOption.arrivalMinutes &&
-            option.rideMinutes < bestOption.rideMinutes)
-        ) {
-          bestOption = option;
-        }
+      let endIndex = -1;
+      let endStop: Stop | null = null;
+      let endDistance = Infinity;
+      for (let index = startIndex + 1; index < route.stopIds.length; index += 1) {
+        const candidate = STOPS[route.stopIds[index]];
+        if (!candidate) continue;
+        const destination = destinations.find((item) =>
+          sameStopLocation(item.stop, candidate),
+        );
+        if (!destination || destination.distance > endDistance) continue;
+        endIndex = index;
+        endStop = candidate;
+        endDistance = destination.distance;
       }
+      if (!endStop || endIndex < 0) continue;
+
+      const option: BuildingRouteOption = {
+        route,
+        startStopId: route.stopIds[startIndex],
+        endStopId: route.stopIds[endIndex],
+        startStopIndex: startIndex,
+        endStopIndex: endIndex,
+        startStop,
+        endStop,
+        rideMinutes: getRouteTripMinutes(route, startIndex, endIndex),
+        walkToStartMeters: metersFromUser(walkingDistances, userPosition, startStop),
+        walkToBuildingMeters: getDistance(
+          building.lat,
+          building.lng,
+          endStop.lat,
+          endStop.lng,
+        ),
+        arrivalMinutes: arrivals[0],
+      };
+      const closerWalk =
+        !bestOption || option.walkToStartMeters < bestOption.walkToStartMeters;
+      const sameWalkEarlierBus =
+        bestOption &&
+        option.walkToStartMeters === bestOption.walkToStartMeters &&
+        (option.arrivalMinutes < bestOption.arrivalMinutes ||
+          (option.arrivalMinutes === bestOption.arrivalMinutes &&
+            option.rideMinutes < bestOption.rideMinutes));
+      if (closerWalk || sameWalkEarlierBus) bestOption = option;
     }
     if (bestOption) options.push(bestOption);
   }
-  return options.sort(
-    (first, second) => first.arrivalMinutes - second.arrivalMinutes,
-  );
+
+  const uniqueRoutes = new Map<string, BuildingRouteOption>();
+  for (const option of options) {
+    const current = uniqueRoutes.get(option.route.label);
+    const closerStop =
+      !current || option.walkToBuildingMeters < current.walkToBuildingMeters;
+    const sameStopSoonerBus =
+      current &&
+      option.walkToBuildingMeters === current.walkToBuildingMeters &&
+      (option.arrivalMinutes < current.arrivalMinutes ||
+        (option.arrivalMinutes === current.arrivalMinutes &&
+          option.rideMinutes < current.rideMinutes));
+    if (closerStop || sameStopSoonerBus) uniqueRoutes.set(option.route.label, option);
+  }
+  return [...uniqueRoutes.values()];
 }
 
 export function SearchPage({
@@ -131,7 +164,13 @@ export function SearchPage({
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [visibleBuildingCount, setVisibleBuildingCount] = useState(8);
   const [visibleStopCount, setVisibleStopCount] = useState(8);
-  const [openTripDetailKey, setOpenTripDetailKey] = useState<string | null>(null);
+  const [openTripDetailKeys, setOpenTripDetailKeys] = useState<string[]>([]);
+  const [routeSort, setRouteSort] = useState<"arrival" | "total">("arrival");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const resultsScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    resultsScrollRef.current?.scrollTo({ top: 0 });
+  }, [selectedBuildingId, searchMode]);
   const currentTime = useCurrentMinute();
   const userPosition: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
@@ -191,24 +230,6 @@ export function SearchPage({
   const selectedBuilding = CAMPUS_BUILDINGS.find(
     (building) => building.id === selectedBuildingId,
   );
-  const buildingStartCandidates = userPosition
-    ? physicalStops
-        .map((stop) => ({
-          stop,
-          distance: distanceByPath(
-            walkingDistances,
-            [stop.lat, stop.lng],
-            getDistance(
-              userPosition[0],
-              userPosition[1],
-              stop.lat,
-              stop.lng,
-            ),
-          ),
-        }))
-        .sort((first, second) => first.distance - second.distance)
-        .slice(0, 3)
-    : [];
   const buildingDestinationCandidates = selectedBuilding
     ? physicalStops
         .map((stop) => ({
@@ -224,36 +245,18 @@ export function SearchPage({
         .slice(0, 3)
     : [];
   const buildingNearestStop = buildingDestinationCandidates[0]?.stop ?? null;
-  const buildingRoutesById = new Map<string, BuildingRouteOption>();
-  if (selectedBuilding && userPosition) {
-    for (const { stop: origin } of buildingStartCandidates) {
-      for (const { stop: destination } of buildingDestinationCandidates) {
-        const routes = getBuildingRouteOptions(
-          origin,
-          destination,
+  const buildingRouteOptions =
+    selectedBuilding && userPosition
+      ? getBuildingRoutes(
           userPosition,
           selectedBuilding,
+          walkingDistances,
+          buildingDestinationCandidates,
           currentTime,
-        );
-        for (const option of routes) {
-          const currentOption = buildingRoutesById.get(option.route.id);
-          if (
-            !currentOption ||
-            option.arrivalMinutes < currentOption.arrivalMinutes ||
-            (option.arrivalMinutes === currentOption.arrivalMinutes &&
-              option.rideMinutes < currentOption.rideMinutes)
-          ) {
-            buildingRoutesById.set(option.route.id, option);
-          }
-        }
-      }
-    }
-  }
-  const buildingRoutes = [...buildingRoutesById.values()].sort(
-    (first, second) => first.arrivalMinutes - second.arrivalMinutes,
-  );
+        )
+      : [];
   const walkingQuery = userPosition && selectedBuilding
-    ? `${userPosition[0].toFixed(5)},${userPosition[1].toFixed(5)}>${selectedBuilding.id}|${buildingRoutes
+    ? `${userPosition[0].toFixed(5)},${userPosition[1].toFixed(5)}>${selectedBuilding.id}|${buildingRouteOptions
         .map((option) => `${option.startStop.id}:${option.endStop.id}`)
         .join(",")}`
     : "";
@@ -267,7 +270,7 @@ export function SearchPage({
       seen.add(key);
       pairs.push({ key, from, to });
     };
-    for (const option of buildingRoutes) {
+    for (const option of buildingRouteOptions) {
       add(userPosition, [option.startStop.lat, option.startStop.lng]);
       add(
         [option.endStop.lat, option.endStop.lng],
@@ -305,6 +308,30 @@ export function SearchPage({
       cancelled = true;
     };
   }, [walkingPairs]);
+
+  const walkMetersFor = (from: Coordinate, to: Coordinate, fallback: number) =>
+    walkingMeters[`${from[0]},${from[1]}>${to[0]},${to[1]}`] ?? Math.round(fallback);
+  const totalTripSeconds = (option: BuildingRouteOption) => {
+    if (!userPosition || !selectedBuilding) return option.rideMinutes * 60;
+    const walkToStop = walkMetersFor(
+      userPosition,
+      [option.startStop.lat, option.startStop.lng],
+      option.walkToStartMeters,
+    );
+    const walkToBuilding = walkMetersFor(
+      [option.endStop.lat, option.endStop.lng],
+      [selectedBuilding.lat, selectedBuilding.lng],
+      option.walkToBuildingMeters,
+    );
+    return (walkToStop + walkToBuilding) / WALKING_METERS_PER_SECOND + option.rideMinutes * 60;
+  };
+  const buildingRoutes = [...buildingRouteOptions].sort((first, second) =>
+    routeSort === "total"
+      ? totalTripSeconds(first) - totalTripSeconds(second) ||
+        first.arrivalMinutes - second.arrivalMinutes
+      : first.arrivalMinutes - second.arrivalMinutes ||
+        totalTripSeconds(first) - totalTripSeconds(second),
+  );
 
   function handleSelect(stop: SearchStop) {
     if (selecting === "from") setFrom(stop);
@@ -458,7 +485,7 @@ export function SearchPage({
           />
         )}
       </div>
-      <div className="flex-1 scrollable">
+      <div ref={resultsScrollRef} className="flex-1 scrollable">
         {searchMode === "places" && (
           <div className="bg-white">
             {selectedBuilding && (
@@ -502,19 +529,80 @@ export function SearchPage({
                   </div>
                 ) : (
                   <div className="mt-3">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
-                      {t("directRoutes")}
+                    <div className="relative mb-2 flex items-center justify-between">
+                      <div className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--muted)" }}>
+                        {t("directRoutes")}
+                      </div>
+                      <button
+                        type="button"
+                        aria-expanded={sortMenuOpen}
+                        aria-label={t("sortRoutes")}
+                        onClick={() => setSortMenuOpen((open) => !open)}
+                        className="relative z-20 flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold"
+                        style={{
+                          background: sortMenuOpen ? "var(--purple-pale)" : "var(--bg)",
+                          color: "var(--purple)",
+                        }}
+                      >
+                        <Icon path={ICONS.sort} size={14} />
+                        <span>{t("sort")}</span>
+                      </button>
+                      {sortMenuOpen && (
+                        <>
+                          <button
+                            type="button"
+                            aria-label={t("sortRoutes")}
+                            className="fixed inset-0 z-10 cursor-default"
+                            onClick={() => setSortMenuOpen(false)}
+                          />
+                          <div
+                            className="absolute right-0 top-9 z-20 w-40 overflow-hidden rounded-xl border shadow-sm"
+                            style={{ borderColor: "var(--border)", background: "white" }}
+                          >
+                            <div
+                              className="px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-widest"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              {t("sortBy")}
+                            </div>
+                            {(["arrival", "total"] as const).map((sort) => (
+                              <button
+                                key={sort}
+                                type="button"
+                                onClick={() => {
+                                  setRouteSort(sort);
+                                  setSortMenuOpen(false);
+                                }}
+                                className="flex w-full items-center justify-between px-3 py-2.5 text-left text-xs font-semibold"
+                                style={{
+                                  color: routeSort === sort ? "var(--purple)" : "var(--text)",
+                                  background: routeSort === sort ? "var(--purple-pale)" : "white",
+                                }}
+                              >
+                                <span>{sort === "arrival" ? t("sortByArrival") : t("sortByTotal")}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                     <div className="space-y-2">
                       {buildingRoutes.map((option) => {
                         const detailKey = `${option.route.id}-${option.startStopId}-${option.endStopId}`;
-                        const detailsOpen = openTripDetailKey === detailKey;
-                        const walkToStopMeters =
-                          walkingMeters[`${userPosition?.[0]},${userPosition?.[1]}>${option.startStop.lat},${option.startStop.lng}`] ??
-                          Math.round(option.walkToStartMeters);
-                        const walkToBuildingMeters =
-                          walkingMeters[`${option.endStop.lat},${option.endStop.lng}>${selectedBuilding.lat},${selectedBuilding.lng}`] ??
-                          Math.round(option.walkToBuildingMeters);
+                        const detailsOpen = openTripDetailKeys.includes(detailKey);
+                        const walkToStopMeters = userPosition
+                          ? walkMetersFor(
+                              userPosition,
+                              [option.startStop.lat, option.startStop.lng],
+                              option.walkToStartMeters,
+                            )
+                          : Math.round(option.walkToStartMeters);
+                        const walkToBuildingMeters = walkMetersFor(
+                          [option.endStop.lat, option.endStop.lng],
+                          [selectedBuilding.lat, selectedBuilding.lng],
+                          option.walkToBuildingMeters,
+                        );
+                        const totalMinutes = Math.max(1, Math.round(totalTripSeconds(option) / 60));
                         const tripSteps = [
                           { label: t("walkToStopStep"), value: t("meterDistance", { meters: walkToStopMeters }) },
                           { label: t("rideStep"), value: t("minutes", { count: option.rideMinutes }) },
@@ -548,6 +636,11 @@ export function SearchPage({
                                 <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
                                   {stopLabel(option.startStop, locale)} → {stopLabel(option.endStop, locale)}
                                 </span>
+                                {routeSort === "total" && (
+                                  <span className="mt-0.5 block text-[11px]" style={{ color: "var(--muted)" }}>
+                                    {t("totalTripMinutes", { count: totalMinutes })}
+                                  </span>
+                                )}
                               </span>
                               <span className="flex flex-shrink-0 flex-col items-end">
                                 {option.arrivalMinutes !== 0 && (
@@ -564,7 +657,13 @@ export function SearchPage({
                             <button
                               type="button"
                               aria-expanded={detailsOpen}
-                              onClick={() => setOpenTripDetailKey(detailsOpen ? null : detailKey)}
+                              onClick={() =>
+                                setOpenTripDetailKeys((current) =>
+                                  current.includes(detailKey)
+                                    ? current.filter((key) => key !== detailKey)
+                                    : [...current, detailKey],
+                                )
+                              }
                               className="flex w-full items-center justify-between border-t px-3 py-2 text-left text-xs font-semibold"
                               style={{ borderColor: "var(--border)", color: "var(--purple)", background: "var(--bg)" }}
                             >

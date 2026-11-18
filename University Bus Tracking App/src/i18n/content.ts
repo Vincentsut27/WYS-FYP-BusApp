@@ -75,9 +75,6 @@ export function frequency(route: Route, locale: Locale) {
       .join("、");
     return `每小時的 ${minutes} 分`;
   }
-  if (route.departureIntervals?.length) {
-    return `相隔 ${route.departureIntervals.join("、")} 分鐘`;
-  }
   const numbers = route.frequency.match(/\d+/g);
   if (numbers?.length === 1) return `每 ${numbers[0]} 分鐘`;
   return route.frequency;

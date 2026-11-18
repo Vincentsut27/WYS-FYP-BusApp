@@ -46,6 +46,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [10, 25, 40, 55],
     stopIds: ["universityStation", "sports", "runrunshawHall", "admin", "shHo", "universityStation"],
     travelTimesSeconds: [111.007334, 108.764411, 106.038634, 116.711808, 109.902914],
+    stopTimeSeconds: 30,
   },
   {
     id: "2",
@@ -58,6 +59,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [15],
     stopIds: ["stationPiazza", "sports", "fungKingHey", "unitedUp", "newAsia", "unitedDown", "admin", "shHo", "universityStation"],
     travelTimesSeconds: [131.579401, 222.47506, 61.642398, 64.442994, 54.195021, 44.606272, 116.711808, 109.902914],
+    stopTimeSeconds: 30,
   },
   {
     id: "2-runrunshawHall",
@@ -71,6 +73,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [45],
     stopIds: ["stationPiazza", "sports", "runrunshawHall", "fungKingHey", "unitedUp", "newAsia", "unitedDown", "admin", "shHo", "universityStation"],
     travelTimesSeconds: [131.579401, 108.764411, 109.904838, 61.642398, 64.442994, 54.195021, 44.606272, 116.711808, 109.902914],
+    stopTimeSeconds: 30,
   },
   {
     id: "2S",
@@ -83,6 +86,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [0, 30],
     stopIds: ["stationPiazza", "postgraduateHall1", "sports", "runrunshawHall", "fungKingHey", "unitedUp", "newAsia", "unitedDown", "admin", "shHo", "postgraduateHall1", "universityStation"],
     travelTimesSeconds: [234.697693, 107.502931, 108.764411, 109.904838, 61.642398, 64.442994, 54.195021, 44.606272, 116.711808, 107.502931, 143.910905],
+    stopTimeSeconds: 30,
   },
   {
     id: "3",
@@ -95,6 +99,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [0, 20, 40],
     stopIds: ["yiap", "sports", "scienceCentre", "fungKingHey", "wuYeeSunUp", "shawNorth", "cwChuCentral", "universityResidence15", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "admin", "shHo", "stationPiazza"],
     travelTimesSeconds: [51.782025, 111.026723, 110.155701, 31.587813, 64.442994, 143.910905, 44.643329, 23.111802, 27.502931, 94.887201, 64.442994, 76.536647, 116.711808, 131.579401],
+    stopTimeSeconds: 30,
   },
   {
     id: "4",
@@ -107,6 +112,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [10, 30, 50],
     stopIds: ["yiap", "circuitEast", "cwChuNorth", "area39", "cwChuCentral", "universityResidence15", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "universityStation"],
     travelTimesSeconds: [162.774438, 174.550186, 57.904818, 57.904818, 44.643329, 23.111802, 27.502931, 94.887201, 64.442994, 107.503112, 54.195021, 44.606272, 116.711808, 109.902914],
+    stopTimeSeconds: 30,
   },
   {
     id: "5",
@@ -116,9 +122,10 @@ export const ROUTES: Route[] = [
     operatingDays: "Mon – Fri (Teaching days only)",
     serviceHours: "09:18 – 17:26",
     frequency: "Every 18, 22, 26 th minutes",
+    departureMinutes: [18, 22, 26],
     stopIds: ["chungChiTeaching", "sports", "runrunshawHall", "fungKingHey", "unitedUp", "newAsia", "wuYeeSunUp", "shawNorth", "cwChuCentral"],
     travelTimesSeconds: [71.503411, 108.764411, 109.904838, 61.642398, 64.442994, 101.993439, 64.442994, 143.910905],
-    departureIntervals: [18, 22, 26],
+    stopTimeSeconds: 30,
   },
   {
     id: "5-sat",
@@ -129,9 +136,10 @@ export const ROUTES: Route[] = [
     operatingDays: "Sat (Teaching days only)",
     serviceHours: "09:18 – 13:26",
     frequency: "Every 18, 22, 26 th minutes",
+    departureMinutes: [18, 22, 26],
     stopIds: ["chungChiTeaching", "sports", "runrunshawHall", "fungKingHey", "unitedUp", "newAsia", "wuYeeSunUp", "shawNorth", "cwChuCentral"],
     travelTimesSeconds: [71.503411, 108.764411, 109.904838, 61.642398, 64.442994, 101.993439, 64.442994, 143.910905],
-    departureIntervals: [18, 22, 26],
+    stopTimeSeconds: 30,
   },
   {
     id: "6A",
@@ -143,6 +151,7 @@ export const ROUTES: Route[] = [
     frequency: "Every 10 th minutes",
     stopIds: ["cwChuCentral", "ucStaff", "chanChunHa", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "stationPiazza", "chungChiTeaching"],
     travelTimesSeconds: [76.536647, 27.502931, 41.606213, 107.503112, 54.195021, 44.606272, 116.711808, 131.579401, 71.503411],
+    stopTimeSeconds: 30,
   },
   {
     id: "6A-sat",
@@ -155,6 +164,7 @@ export const ROUTES: Route[] = [
     frequency: "Every 10 th minutes",
     stopIds: ["cwChuCentral", "ucStaff", "chanChunHa", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "stationPiazza", "chungChiTeaching"],
     travelTimesSeconds: [76.536647, 27.502931, 41.606213, 107.503112, 54.195021, 44.606272, 116.711808, 131.579401, 71.503411],
+    stopTimeSeconds: 30,
   },
   {
     id: "6B",
@@ -166,6 +176,7 @@ export const ROUTES: Route[] = [
     frequency: "Every 20 th minutes",
     stopIds: ["newAsia", "unitedDown", "admin", "shHo", "stationPiazza", "chungChiTeaching"],
     travelTimesSeconds: [54.195021, 44.606272, 116.711808, 131.579401, 71.503411],
+    stopTimeSeconds: 30,
   },
   {
     id: "7",
@@ -178,6 +189,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [0, 18],
     stopIds: ["shawCentral", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "stationPiazza", "chungChiTeaching"],
     travelTimesSeconds: [64.442994, 107.503112, 54.195021, 44.606272, 116.711808, 131.579401, 71.503411],
+    stopTimeSeconds: 30,
   },
   {
     id: "7-sat",
@@ -191,6 +203,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [0, 18],
     stopIds: ["shawCentral", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "stationPiazza", "chungChiTeaching"],
     travelTimesSeconds: [64.442994, 107.503112, 54.195021, 44.606272, 116.711808, 131.579401, 71.503411],
+    stopTimeSeconds: 30,
   },
   {
     id: "8",
@@ -203,6 +216,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [15, 35, 55],
     stopIds: ["yiap", "circuitEast", "cwChuNorth", "area39", "cwChuCentral", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "admin", "scienceCentre", "newAsiaCircle", "unitedDown", "wuYeeSunUp", "shawNorth", "area39", "circuitNorth", "circuitEast", "universityStation"],
     travelTimesSeconds: [162.774438, 174.550186, 57.904818, 57.904818, 76.536647, 27.502931, 94.887201, 64.442994, 76.536647, 66.799731, 45.930699, 91.578731, 66.332298, 64.442994, 211.995356, 101.335502, 263.836323, 237.714373],
+    stopTimeSeconds: 30,
   },
   {
     id: "8-nonTeaching",
@@ -216,6 +230,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [15, 35, 55],
     stopIds: ["yiap", "circuitEast", "cwChuNorth", "area39", "cwChuCentral", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "admin", "scienceCentre", "newAsiaCircle", "unitedDown", "wuYeeSunUp", "shawNorth", "area39", "circuitNorth", "circuitEast", "stationPiazza", "chungChiTeaching"],
     travelTimesSeconds: [162.774438, 174.550186, 57.904818, 57.904818, 76.536647, 27.502931, 94.887201, 64.442994, 76.536647, 66.799731, 45.930699, 91.578731, 66.332298, 64.442994, 211.995356, 101.335502, 263.836323, 268.99879, 71.503411],
+    stopTimeSeconds: 30,
   },
   {
     id: "N",
@@ -228,6 +243,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [15, 30, 45],
     stopIds: ["universityStation", "sports", "runrunshawHall", "newAsiaCircle", "unitedDown", "wuYeeSunUp", "shawNorth", "area39", "cwChuCentral", "universityResidence15", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "universityStation"],
     travelTimesSeconds: [111.007334, 108.764411, 45.930699, 91.578731, 66.332298, 64.442994, 211.995356, 57.904818, 44.643329, 23.111802, 27.502931, 94.887201, 64.442994, 107.503112, 54.195021, 44.606272, 116.711808, 109.902914],
+    stopTimeSeconds: 30,
   },
   {
     id: "H",
@@ -240,6 +256,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [20, 40],
     stopIds: ["universityStation", "sports", "runrunshawHall", "newAsiaCircle", "unitedDown", "wuYeeSunUp", "shawNorth", "cwChuCentral", "universityResidence15", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "universityStation"],
     travelTimesSeconds: [111.007334, 108.764411, 45.930699, 91.578731, 66.332298, 64.442994, 143.910905, 44.643329, 23.111802, 27.502931, 94.887201, 64.442994, 107.503112, 54.195021, 44.606272, 116.711808, 109.902914],
+    stopTimeSeconds: 30,
   },
   {
     id: "H-postgard-area39",
@@ -253,6 +270,7 @@ export const ROUTES: Route[] = [
     departureMinutes: [0],
     stopIds: ["universityStation", "postgraduateHall1", "sports", "runrunshawHall", "newAsiaCircle", "unitedDown", "wuYeeSunUp", "shawNorth", "area39", "cwChuCentral", "universityResidence15", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "postgraduateHall1", "universityStation"],
     travelTimesSeconds: [234.697693, 107.502931, 108.764411, 45.930699, 91.578731, 66.332298, 64.442994, 211.995356, 57.904818, 44.643329, 23.111802, 27.502931, 94.887201, 64.442994, 107.503112, 54.195021, 44.606272, 116.711808, 107.502931, 143.910905],
+    stopTimeSeconds: 30,
   },
   {
     id: "N-postgrad",
@@ -266,5 +284,6 @@ export const ROUTES: Route[] = [
     departureMinutes: [0],
     stopIds: ["universityStation", "postgraduateHall1", "sports", "runrunshawHall", "newAsiaCircle", "unitedDown", "wuYeeSunUp", "shawNorth", "area39", "cwChuCentral", "universityResidence15", "ucStaff", "chanChunHa", "shawCentral", "wuYeeSunDown", "newAsia", "unitedDown", "admin", "shHo", "postgraduateHall1", "universityStation"],
     travelTimesSeconds: [234.697693, 107.502931, 108.764411, 45.930699, 91.578731, 66.332298, 64.442994, 211.995356, 57.904818, 44.643329, 23.111802, 27.502931, 94.887201, 64.442994, 107.503112, 54.195021, 44.606272, 116.711808, 107.502931, 143.910905],
+    stopTimeSeconds: 30,
   },
 ];
