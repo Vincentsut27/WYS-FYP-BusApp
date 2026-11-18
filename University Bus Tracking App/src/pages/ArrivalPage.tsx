@@ -2,6 +2,10 @@ import { useMemo, useState } from "react";
 import { CampusMap } from "../components/CampusMap";
 import { Icon, ICONS } from "../components/Icon";
 import { ROUTES, STOPS } from "../data/routes";
+import {
+  distanceByPath,
+  useCampusWalkingDistances,
+} from "../hooks/useCampusWalkingDistances";
 import { useLiveBusEta } from "../hooks/useLiveBusEta";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
@@ -183,12 +187,17 @@ export function ArrivalPage({
   const userPos: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
+  const walkingDistances = useCampusWalkingDistances(userPos);
   const physicalStops = getPhysicalStops();
   const nearbyStops = physicalStops
     .map((stop) => ({
       ...stop,
       dist: userPos
-        ? getDistance(userPos[0], userPos[1], stop.lat, stop.lng)
+        ? distanceByPath(
+            walkingDistances,
+            [stop.lat, stop.lng],
+            getDistance(userPos[0], userPos[1], stop.lat, stop.lng),
+          )
         : Infinity,
     }))
     .sort((first, second) => first.dist - second.dist)
@@ -442,7 +451,7 @@ export function ArrivalPage({
                     {stopLabel(stop, locale)}
                   </div>
                 </div>
-                {typeof distance === "number" && (
+                {typeof distance === "number" && Number.isFinite(distance) && (
                   <span
                     className="text-xs font-semibold flex-shrink-0"
                     style={{ color: "var(--muted)" }}

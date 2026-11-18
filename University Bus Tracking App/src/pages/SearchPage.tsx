@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Icon, ICONS } from "../components/Icon";
 import { CAMPUS_BUILDINGS } from "../data/buildings";
 import { ROUTES, STOPS } from "../data/routes";
+import {
+  distanceByPath,
+  useCampusWalkingDistances,
+} from "../hooks/useCampusWalkingDistances";
 import { useCurrentMinute } from "../hooks/useCurrentMinute";
 import { buildingLabel, routeHeading, stopLabel } from "../i18n/content";
 import { useI18n } from "../i18n/LanguageProvider";
@@ -15,6 +19,7 @@ import {
   SEARCH_STOPS,
   sameStopLocation,
 } from "../lib/transit";
+import { loadWalkingDistance, type Coordinate } from "../lib/routeGeometry";
 import { recordUsage } from "../lib/usage";
 import type { CampusBuilding, Route, SearchStop, Stop } from "../types/transit";
 
@@ -126,10 +131,12 @@ export function SearchPage({
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [visibleBuildingCount, setVisibleBuildingCount] = useState(8);
   const [visibleStopCount, setVisibleStopCount] = useState(8);
+  const [openTripDetailKey, setOpenTripDetailKey] = useState<string | null>(null);
   const currentTime = useCurrentMinute();
   const userPosition: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
+  const walkingDistances = useCampusWalkingDistances(userPosition);
 
   const closestSearchStopId = userPosition
     ? SEARCH_STOPS.reduce((closest, stop) => {
@@ -137,17 +144,25 @@ export function SearchPage({
         const currentClosest = SEARCH_STOPS.find(
           (candidate) => candidate.id === closest,
         )!;
-        return getDistance(
-          userPosition[0],
-          userPosition[1],
-          stop.lat,
-          stop.lng,
-        ) <
+        return distanceByPath(
+          walkingDistances,
+          [stop.lat, stop.lng],
           getDistance(
             userPosition[0],
             userPosition[1],
-            currentClosest.lat,
-            currentClosest.lng,
+            stop.lat,
+            stop.lng,
+          ),
+        ) <
+          distanceByPath(
+            walkingDistances,
+            [currentClosest.lat, currentClosest.lng],
+            getDistance(
+              userPosition[0],
+              userPosition[1],
+              currentClosest.lat,
+              currentClosest.lng,
+            ),
           )
           ? stop.id
           : closest;
@@ -180,11 +195,15 @@ export function SearchPage({
     ? physicalStops
         .map((stop) => ({
           stop,
-          distance: getDistance(
-            userPosition[0],
-            userPosition[1],
-            stop.lat,
-            stop.lng,
+          distance: distanceByPath(
+            walkingDistances,
+            [stop.lat, stop.lng],
+            getDistance(
+              userPosition[0],
+              userPosition[1],
+              stop.lat,
+              stop.lng,
+            ),
           ),
         }))
         .sort((first, second) => first.distance - second.distance)
@@ -233,6 +252,59 @@ export function SearchPage({
   const buildingRoutes = [...buildingRoutesById.values()].sort(
     (first, second) => first.arrivalMinutes - second.arrivalMinutes,
   );
+  const walkingQuery = userPosition && selectedBuilding
+    ? `${userPosition[0].toFixed(5)},${userPosition[1].toFixed(5)}>${selectedBuilding.id}|${buildingRoutes
+        .map((option) => `${option.startStop.id}:${option.endStop.id}`)
+        .join(",")}`
+    : "";
+  const walkingPairs = useMemo(() => {
+    if (!userPosition || !selectedBuilding) return [];
+    const pairs: Array<{ key: string; from: Coordinate; to: Coordinate }> = [];
+    const seen = new Set<string>();
+    const add = (from: Coordinate, to: Coordinate) => {
+      const key = `${from[0]},${from[1]}>${to[0]},${to[1]}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      pairs.push({ key, from, to });
+    };
+    for (const option of buildingRoutes) {
+      add(userPosition, [option.startStop.lat, option.startStop.lng]);
+      add(
+        [option.endStop.lat, option.endStop.lng],
+        [selectedBuilding.lat, selectedBuilding.lng],
+      );
+    }
+    return pairs;
+  }, [walkingQuery]);
+  const [walkingMeters, setWalkingMeters] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (walkingPairs.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      walkingPairs.map(async (pair) => {
+        const meters = await loadWalkingDistance(pair.from, pair.to);
+        return [pair.key, meters] as const;
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      setWalkingMeters((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const [key, meters] of results) {
+          if (meters === null) continue;
+          const rounded = Math.round(meters);
+          if (next[key] !== rounded) {
+            next[key] = rounded;
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [walkingPairs]);
 
   function handleSelect(stop: SearchStop) {
     if (selecting === "from") setFrom(stop);
@@ -434,46 +506,99 @@ export function SearchPage({
                       {t("directRoutes")}
                     </div>
                     <div className="space-y-2">
-                      {buildingRoutes.map((option) => (
-                        <button
-                          key={`${option.route.id}-${option.startStopId}-${option.endStopId}`}
-                          type="button"
-                          onClick={() => {
-                            recordUsage("search");
-                            onTrackBuilding(
-                              option.route,
-                              option.startStopId,
-                              option.endStopId,
-                              option.startStopIndex,
-                              option.endStopIndex,
-                              selectedBuilding.id,
-                            );
-                          }}
-                          className="flex w-full items-center gap-3 rounded-xl border p-3 text-left"
-                          style={{ borderColor: "var(--border)", background: "white" }}
-                        >
-                          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white" style={{ background: option.route.color }}>
-                            {option.route.label}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
-                              {stopLabel(option.startStop, locale)} → {stopLabel(option.endStop, locale)}
-                            </span>
-                            <span className="mt-0.5 block text-xs" style={{ color: "var(--muted)" }}>
-                              {t("rideWalk", { ride: option.rideMinutes, toStop: Math.round(option.walkToStartMeters), toBuilding: Math.round(option.walkToBuildingMeters) })}
-                            </span>
-                          </span>
-                          <span className="flex flex-shrink-0 flex-col items-end">
-                            <span className="text-xl font-extrabold leading-none" style={{ color: option.route.color }}>
-                              {option.arrivalMinutes === 0 ? t("now") : t("minutes", { count: option.arrivalMinutes })}
-                            </span>
-                            <span className="mt-1 text-[10px]" style={{ color: "var(--muted)" }}>
-                              {t("busArrival")}
-                            </span>
-                          </span>
-                          <Icon path={ICONS.chevronRight} size={18} className="flex-shrink-0 opacity-50" />
-                        </button>
-                      ))}
+                      {buildingRoutes.map((option) => {
+                        const detailKey = `${option.route.id}-${option.startStopId}-${option.endStopId}`;
+                        const detailsOpen = openTripDetailKey === detailKey;
+                        const walkToStopMeters =
+                          walkingMeters[`${userPosition?.[0]},${userPosition?.[1]}>${option.startStop.lat},${option.startStop.lng}`] ??
+                          Math.round(option.walkToStartMeters);
+                        const walkToBuildingMeters =
+                          walkingMeters[`${option.endStop.lat},${option.endStop.lng}>${selectedBuilding.lat},${selectedBuilding.lng}`] ??
+                          Math.round(option.walkToBuildingMeters);
+                        const tripSteps = [
+                          { label: t("walkToStopStep"), value: t("meterDistance", { meters: walkToStopMeters }) },
+                          { label: t("rideStep"), value: t("minutes", { count: option.rideMinutes }) },
+                          { label: t("walkToBuildingStep"), value: t("meterDistance", { meters: walkToBuildingMeters }) },
+                        ];
+                        return (
+                          <div
+                            key={detailKey}
+                            className="overflow-hidden rounded-xl border"
+                            style={{ borderColor: "var(--border)", background: "white" }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                recordUsage("search");
+                                onTrackBuilding(
+                                  option.route,
+                                  option.startStopId,
+                                  option.endStopId,
+                                  option.startStopIndex,
+                                  option.endStopIndex,
+                                  selectedBuilding.id,
+                                );
+                              }}
+                              className="flex w-full items-center gap-3 p-3 text-left"
+                            >
+                              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-sm font-bold text-white" style={{ background: option.route.color }}>
+                                {option.route.label}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-semibold" style={{ color: "var(--text)" }}>
+                                  {stopLabel(option.startStop, locale)} → {stopLabel(option.endStop, locale)}
+                                </span>
+                              </span>
+                              <span className="flex flex-shrink-0 flex-col items-end">
+                                {option.arrivalMinutes !== 0 && (
+                                  <span className="mb-1 text-[10px] font-semibold" style={{ color: "var(--muted)" }}>
+                                    {t("arrivingIn")}
+                                  </span>
+                                )}
+                                <span className="text-xl font-extrabold leading-none" style={{ color: option.route.color }}>
+                                  {option.arrivalMinutes === 0 ? t("now") : t("minutes", { count: option.arrivalMinutes })}
+                                </span>
+                              </span>
+                              <Icon path={ICONS.chevronRight} size={18} className="flex-shrink-0 opacity-50" />
+                            </button>
+                            <button
+                              type="button"
+                              aria-expanded={detailsOpen}
+                              onClick={() => setOpenTripDetailKey(detailsOpen ? null : detailKey)}
+                              className="flex w-full items-center justify-between border-t px-3 py-2 text-left text-xs font-semibold"
+                              style={{ borderColor: "var(--border)", color: "var(--purple)", background: "var(--bg)" }}
+                            >
+                              <span>{t("tripDetails")}</span>
+                              <Icon
+                                path={ICONS.chevronDown}
+                                size={16}
+                                className={`transition-transform ${detailsOpen ? "rotate-180" : ""}`}
+                              />
+                            </button>
+                            {detailsOpen && (
+                              <ol className="border-t px-3 py-3" style={{ borderColor: "var(--border)" }}>
+                                {tripSteps.map((step, index) => (
+                                  <li key={step.label} className="flex gap-2.5">
+                                    <span className="flex w-3 flex-col items-center">
+                                      <span
+                                        className="mt-1 h-2 w-2 flex-shrink-0 rounded-full"
+                                        style={{ background: option.route.color }}
+                                      />
+                                      {index < tripSteps.length - 1 && (
+                                        <span className="my-0.5 w-px flex-1" style={{ background: "var(--border)", minHeight: 14 }} />
+                                      )}
+                                    </span>
+                                    <span className={`flex min-w-0 flex-1 items-baseline justify-between gap-3 ${index < tripSteps.length - 1 ? "pb-2.5" : ""}`}>
+                                      <span className="text-xs" style={{ color: "var(--muted)" }}>{step.label}</span>
+                                      <span className="text-xs font-bold tabular-nums" style={{ color: "var(--text)" }}>{step.value}</span>
+                                    </span>
+                                  </li>
+                                ))}
+                              </ol>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

@@ -12,10 +12,10 @@ Sharing starts automatically when a tracked trip starts and can be paused in the
 
 After ending a trip, riders can submit a 1–5 star rating and optionally share a short experience note or app suggestion. Feedback is stored in `public.trip_feedback` without account or identity fields.
 
-The migration dated `20261111000000` adds `public.app_usage`. A browser is counted only after Start Trip, a stop-to-stop or building search, opening an arrival timetable, or opening a route. The same browser keeps one random `visitor_id`, so using several of those features still counts as one user. The table does not store a name, email, or location. In the Supabase SQL editor, the number of users in the past 7 days is:
+The migration dated `20261111000000` adds `public.app_usage`. A browser is counted only after Start Trip, a stop-to-stop or building search, opening an arrival timetable, or opening a route. The same browser keeps one random `visitor_id`, so using several of those features still counts as one user. The table does not store a name, email, or location. `used_at` is Hong Kong time. In the Supabase SQL editor, the number of users in the past 7 days is:
 
 ```sql
 select count(distinct visitor_id)
 from public.app_usage
-where used_at >= now() - interval '7 days';
+where used_at >= timezone('Asia/Hong_Kong', now()) - interval '7 days';
 ```

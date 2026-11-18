@@ -22,7 +22,12 @@ interface RoadRoute {
 
 const routeGeometryCache = new Map<string, Promise<RouteGeometry>>();
 const roadRouteCache = new Map<string, Promise<RoadRoute | null>>();
-const walkingRouteCache = new Map<string, Promise<Coordinate[] | null>>();
+interface WalkingRoute {
+  points: Coordinate[];
+  distanceMeters: number;
+}
+
+const walkingRouteCache = new Map<string, Promise<WalkingRoute | null>>();
 
 export function distanceBetweenCoordinates(
   first: Coordinate,
@@ -129,13 +134,13 @@ export async function loadRoadPath(stops: Coordinate[]) {
   return route?.points ?? null;
 }
 
-export function loadWalkingPath(stops: Coordinate[]) {
+function loadWalkingRoute(stops: Coordinate[]) {
   if (stops.length < 2) return Promise.resolve(null);
   const coordinatesKey = getCoordinatesKey(stops);
   const cached = walkingRouteCache.get(coordinatesKey);
   if (cached) return cached;
 
-  const request = (async (): Promise<Coordinate[] | null> => {
+  const request = (async (): Promise<WalkingRoute | null> => {
     const coordinates = stops
       .map(([latitude, longitude]) => `${longitude},${latitude}`)
       .join(";");
@@ -145,21 +150,105 @@ export function loadWalkingPath(stops: Coordinate[]) {
     );
     if (!response.ok) return null;
     const data: {
-      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+      routes?: {
+        distance?: number;
+        geometry?: { coordinates?: [number, number][] };
+      }[];
     } = await response.json();
-    const routeCoordinates = data.routes?.[0]?.geometry?.coordinates;
-    if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) {
+    const route = data.routes?.[0];
+    const routeCoordinates = route?.geometry?.coordinates;
+    if (
+      !route ||
+      typeof route.distance !== "number" ||
+      !Array.isArray(routeCoordinates) ||
+      routeCoordinates.length < 2
+    ) {
       return null;
     }
-    return routeCoordinates.map(
-      ([longitude, latitude]) => [latitude, longitude] as Coordinate,
-    );
+    return {
+      distanceMeters: route.distance,
+      points: routeCoordinates.map(
+        ([longitude, latitude]) => [latitude, longitude] as Coordinate,
+      ),
+    };
   })().catch(() => null);
 
   walkingRouteCache.set(coordinatesKey, request);
-  void request.then((path) => {
-    if (!path && walkingRouteCache.get(coordinatesKey) === request) {
+  void request.then((route) => {
+    if (!route && walkingRouteCache.get(coordinatesKey) === request) {
       walkingRouteCache.delete(coordinatesKey);
+    }
+  });
+  return request;
+}
+
+export function loadWalkingPath(stops: Coordinate[]) {
+  return loadWalkingRoute(stops).then((route) => route?.points ?? null);
+}
+
+export function loadWalkingDistance(from: Coordinate, to: Coordinate) {
+  return loadWalkingRoute([from, to]).then(
+    (route) => route?.distanceMeters ?? null,
+  );
+}
+
+interface WalkingDistanceTable {
+  byPoint: Record<string, number>;
+}
+
+const walkingTableCache = new Map<string, Promise<WalkingDistanceTable | null>>();
+
+function coordinateKey(point: Coordinate) {
+  return `${point[0]},${point[1]}`;
+}
+
+export function loadWalkingDistances(from: Coordinate, targets: Coordinate[]) {
+  const origin: Coordinate = [
+    Number(from[0].toFixed(4)),
+    Number(from[1].toFixed(4)),
+  ];
+  const uniqueTargets: Coordinate[] = [];
+  const seen = new Set<string>();
+  for (const target of targets) {
+    const key = coordinateKey(target);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueTargets.push(target);
+  }
+  uniqueTargets.sort(
+    (first, second) => first[0] - second[0] || first[1] - second[1],
+  );
+  const cacheKey = `${coordinateKey(origin)}>${uniqueTargets.map(coordinateKey).join(";")}`;
+  const cached = walkingTableCache.get(cacheKey);
+  if (cached) return cached;
+
+  const request = (async (): Promise<WalkingDistanceTable | null> => {
+    if (uniqueTargets.length === 0) return { byPoint: {} };
+    const coordinates = [origin, ...uniqueTargets]
+      .map(([latitude, longitude]) => `${longitude},${latitude}`)
+      .join(";");
+    const response = await fetch(
+      `https://routing.openstreetmap.de/routed-foot/table/v1/driving/${coordinates}?sources=0&annotations=distance`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!response.ok) return null;
+    const data: { distances?: Array<Array<number | null>> } =
+      await response.json();
+    const row = data.distances?.[0];
+    if (!row || row.length !== uniqueTargets.length + 1) return null;
+    const byPoint: Record<string, number> = {};
+    uniqueTargets.forEach((point, index) => {
+      const meters = row[index + 1];
+      if (typeof meters !== "number") return;
+      byPoint[coordinateKey(point)] = Math.round(meters);
+    });
+    return { byPoint };
+  })().catch(() => null);
+
+  walkingTableCache.set(cacheKey, request);
+  void request.then((table) => {
+    if (!table && walkingTableCache.get(cacheKey) === request) {
+      walkingTableCache.delete(cacheKey);
     }
   });
   return request;

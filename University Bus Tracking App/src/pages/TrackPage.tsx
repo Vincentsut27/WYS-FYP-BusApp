@@ -14,6 +14,10 @@ import {
 import { useI18n } from "../i18n/LanguageProvider";
 import { localizeSystemMessage } from "../i18n/messages";
 import { useBusLocationSharing } from "../hooks/useBusLocationSharing";
+import {
+  distanceByPath,
+  useCampusWalkingDistances,
+} from "../hooks/useCampusWalkingDistances";
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
 import { useTripProgress } from "../hooks/useTripProgress";
 import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
@@ -126,6 +130,7 @@ export function TrackPage({
   const userPosition: [number, number] | null = gpsPosition
     ? [gpsPosition.coords.latitude, gpsPosition.coords.longitude]
     : null;
+  const walkingDistances = useCampusWalkingDistances(userPosition);
   const trackingPosition = userPosition;
   const tripProgress = useTripProgress(
     routeGeometry,
@@ -241,11 +246,15 @@ export function TrackPage({
     let nearestRouteIndex = 0;
     let minimumDistance = Infinity;
     routeStops.forEach((stop, index) => {
-      const distance = getDistance(
-        trackingPosition[0],
-        trackingPosition[1],
-        stop.lat,
-        stop.lng,
+      const distance = distanceByPath(
+        walkingDistances,
+        [stop.lat, stop.lng],
+        getDistance(
+          trackingPosition[0],
+          trackingPosition[1],
+          stop.lat,
+          stop.lng,
+        ),
       );
       if (distance < minimumDistance) {
         minimumDistance = distance;
@@ -282,6 +291,7 @@ export function TrackPage({
     startStopManuallySet,
     tripStarted,
     tripStopIndex,
+    walkingDistances,
   ]);
 
   useEffect(() => {
