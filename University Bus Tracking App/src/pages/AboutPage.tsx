@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Icon, ICONS } from "../components/Icon";
 import { useI18n } from "../i18n/LanguageProvider";
 import type { Locale } from "../i18n/messages";
-import { CONTACT_EMAIL, FEEDBACK_FORM_URL } from "../lib/links";
+import { CONTACT_EMAIL, FEEDBACK_FORM_URL, INSTAGRAM_HANDLE, INSTAGRAM_URL } from "../lib/links";
 
 export function AboutPage() {
   const { locale, setLocale, t } = useI18n();
@@ -68,6 +68,19 @@ export function AboutPage() {
           >
             <Icon path={ICONS.info} size={16} />
             {CONTACT_EMAIL}
+          </a>
+          <p className="mt-4 text-sm leading-6" style={{ color: "var(--muted)" }}>
+            {t("instagramBody")}
+          </p>
+          <a
+            href={INSTAGRAM_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex min-h-10 items-center gap-2 text-sm font-semibold"
+            style={{ color: "var(--purple)" }}
+          >
+            <Icon path={ICONS.instagram} size={16} />
+            {INSTAGRAM_HANDLE}
           </a>
         </section>
 

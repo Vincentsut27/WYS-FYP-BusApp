@@ -37,6 +37,10 @@ export const MESSAGES = {
     en: "Contact us by email. We welcome questions and ideas for improving the app.",
     "zh-Hant": "歡迎以電郵聯絡我們，提出問題或改善應用程式的想法。",
   },
+  instagramBody: {
+    en: "See our latest updates on Instagram.",
+    "zh-Hant": "在 Instagram 查看我們的最新消息。",
+  },
   feedbackTitle: { en: "Feedback", "zh-Hant": "意見回饋" },
   feedbackBody: {
     en: "Tell us what worked and what we should improve. The form opens in a new tab.",

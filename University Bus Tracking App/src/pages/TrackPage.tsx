@@ -21,6 +21,7 @@ import {
 import { useRouteGeometry } from "../hooks/useRouteGeometry";
 import { useTripProgress } from "../hooks/useTripProgress";
 import { LIVE_ETA_ENABLED } from "../lib/featureFlags";
+import type { RouteGeometry } from "../lib/routeGeometry";
 import {
   getDistance,
   playArrivalTone,
@@ -37,6 +38,21 @@ type ArrivalNotice =
   | { kind: "building"; buildingId: string };
 const GUIDANCE_HIDE_METERS = 13;
 const DEST_STOP_ALERT_METERS = 75;
+const DEST_STOP_PASSED_METERS = 40;
+
+function roadMetersToStop(
+  geometry: RouteGeometry | null,
+  progressMeters: number | null,
+  stopIndex: number,
+) {
+  if (!geometry || progressMeters === null || stopIndex < 0) return null;
+  const segment = geometry.segments[stopIndex];
+  const stopDistance = segment
+    ? segment.startDistanceMeters
+    : geometry.segments[stopIndex - 1]?.endDistanceMeters;
+  if (stopDistance === undefined) return null;
+  return stopDistance - progressMeters;
+}
 
 export function TrackPage({
   isActive = true,
@@ -442,14 +458,11 @@ export function TrackPage({
       tripProgress.confident &&
       tripProgress.currentStopIndex !== null &&
       tripProgress.currentStopIndex >= destinationRouteIndex;
-    const distanceToDest = userPosition
-      ? getDistance(
-          userPosition[0],
-          userPosition[1],
-          destStop.lat,
-          destStop.lng,
-        )
-      : Infinity;
+    const distanceToDest = roadMetersToStop(
+      routeGeometry,
+      tripProgress.progressMeters,
+      destinationRouteIndex,
+    );
     const leftStart =
       tripProgress.currentStopIndex !== null &&
       tripProgress.currentStopIndex > startIndex
@@ -465,7 +478,10 @@ export function TrackPage({
               ) > 80,
           );
     const nearDestStop =
-      distanceToDest <= DEST_STOP_ALERT_METERS && leftStart;
+      distanceToDest !== null &&
+      distanceToDest <= DEST_STOP_ALERT_METERS &&
+      distanceToDest >= -DEST_STOP_PASSED_METERS &&
+      leftStart;
     if (!reachedAlongRoute && !nearDestStop) return;
 
     if (destinationBuilding) {
@@ -514,6 +530,8 @@ export function TrackPage({
     destinationRouteIndex,
     tripProgress.confident,
     tripProgress.currentStopIndex,
+    tripProgress.progressMeters,
+    routeGeometry,
     arrivalNotificationsEnabled,
     presetRouteId,
     presetRevision,
